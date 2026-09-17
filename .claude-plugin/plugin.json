@@ -1,7 +1,7 @@
 {
   "name": "probe-mode",
-  "description": "Research-only mode. Sources freely and proves ideas with real benchmarks in a sandbox, but cannot touch your project until you explicitly ask and approve a plan. Enforced by hooks, not by the model.",
-  "version": "1.1.0",
+  "description": "Research-only mode you can loop: round after round of questioning, testing and benchmarking in a sandbox, then a plan you approve, then implementation — and back to research whenever you want. Enforced by hooks rather than by the model, and every round keeps its own git restore point.",
+  "version": "1.1.1",
   "author": {
     "name": "Alston Chan"
   },

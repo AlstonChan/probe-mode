@@ -122,6 +122,10 @@ PowerShell `Set-Content`.
 The sandbox is `~/.claude/probe-state/<session-id>/sandbox/`, plus `.probe-sandbox/` in
 the working directory if you prefer keeping artifacts next to the code.
 
+If you use the in-project option, add `.probe-sandbox/` to that project's `.gitignore`.
+It is a real directory inside your repo, so without the ignore rule your scratch scripts
+and benchmark output show up as untracked files and eventually get committed by accident.
+
 ### The plan directory
 
 `~/.claude/plans/` is writable by the **Edit and Write tools in every phase**. Plan mode

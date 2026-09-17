@@ -7,7 +7,7 @@
     {
       "name": "probe-mode",
       "source": "./",
-      "description": "Research-only mode that cannot touch your project until you approve a plan."
+      "description": "Loopable research-only mode: research, plan, implement, repeat. Writes blocked until you approve a plan; every round is restorable."
     }
   ],
   "description": "Research-only mode for Claude Code: source freely, prove ideas in a sandbox, touch nothing until a plan is approved."
