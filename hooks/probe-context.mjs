@@ -5,12 +5,31 @@ import { readStdin, readState } from './probe-lib.mjs';
 
 const input = readStdin();
 const state = readState(input.session_id);
-if (!state || state.phase === 'implementing' || state.phase === 'off') process.exit(0);
+if (!state || state.phase === 'off') process.exit(0);
+
+const emit = (text) => {
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text },
+  }));
+  process.exit(0);
+};
+
+const round = state.round || 1;
+
+// Unlocked. Deliberately short: this runs on every prompt for the rest of the
+// session, and its only job is to make the next step of the cycle discoverable.
+if (state.phase === 'implementing') {
+  emit([
+    `PROBE MODE: round ${round}, writes unlocked (plan approved). Execute directly.`,
+    'To research again instead, the user runs `/probe <question>` — that opens a new',
+    'round and re-blocks writes. `/probe restore` rewinds; every round is restorable.',
+  ].join('\n'));
+}
 
 const planning = state.phase === 'planning';
 
-const text = [
-  `PROBE MODE IS ACTIVE (phase: ${state.phase}).`,
+emit([
+  `PROBE MODE IS ACTIVE (round ${round}, phase: ${state.phase}).`,
   '',
   'Contract for this turn:',
   '- Investigate freely: read, search, fetch, run tests and benchmarks, inspect anything.',
@@ -24,8 +43,4 @@ const text = [
   '- When you finish investigating, report: what you verified, the evidence, and what you would do — then stop.',
   '',
   'A PreToolUse hook enforces this. If a write is denied, that is expected; do not work around it.',
-].join('\n');
-
-process.stdout.write(JSON.stringify({
-  hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text },
-}));
+].join('\n'));

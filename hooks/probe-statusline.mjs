@@ -27,10 +27,11 @@ try {
 }
 if (!state || state.phase === 'off') process.exit(0);
 
+const r = state.round && state.round > 1 ? ` r${state.round}` : '';
 const LOOK = {
-  probe:        { c: C.amber, label: '⏸ probe mode on',  note: 'research only · writes blocked outside sandbox' },
-  planning:     { c: C.cyan,  label: '⏸ probe: planning', note: 'awaiting plan approval · writes still blocked' },
-  implementing: { c: C.green, label: '⏵⏵ probe: unlocked', note: 'plan approved · writes allowed' },
+  probe:        { c: C.amber, label: `⏸ probe${r} mode on`,   note: 'research only · writes blocked outside sandbox' },
+  planning:     { c: C.cyan,  label: `⏸ probe${r}: planning`, note: 'awaiting plan approval · writes still blocked' },
+  implementing: { c: C.green, label: `⏵⏵ probe${r}: unlocked`, note: 'plan approved · writes allowed' },
 };
 const look = LOOK[state.phase];
 if (!look) process.exit(0);

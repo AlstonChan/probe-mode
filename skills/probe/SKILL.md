@@ -9,6 +9,8 @@ allowed-tools: Bash(node *)
 Run the control command for `$ARGUMENTS`, then follow the contract below.
 
 - no subcommand, or `start` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" start`, then investigate the question in `$ARGUMENTS`.
+  This works whether or not probe mode is already on. If it is, it opens a **new research
+  round**: writes are blocked again and every earlier round stays restorable.
 - `status` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" status` and report it.
 - `implement` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" implement`, then call **EnterPlanMode** and write the plan.
 - `restore` → run `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" restore`. This is a
@@ -16,6 +18,8 @@ Run the control command for `$ARGUMENTS`, then follow the contract below.
   commits it would roll back — and wait for them to confirm. Only then re-run the same
   command with `--force`. Never pass `--force` on your own initiative, and never pass it in
   the same turn the user asked to restore.
+  Defaults to the start of the current round. `--round N` targets a specific round,
+  `--all` goes back to the very beginning, and `--undo` reverses the last restore.
 - `stop` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" stop`.
 
 ## The contract
@@ -60,6 +64,18 @@ approve a plan through `ExitPlanMode`. A `PostToolUse` hook on `ExitPlanMode` is
 lifts the block — approving the plan is the only thing that does. Leaving plan mode
 any other way leaves the project locked.
 
-`/probe restore` rolls the working tree back to the moment probe mode started
+`/probe restore` rolls the working tree back to the start of the current round
 (git snapshot; current changes are stashed first as a safety net). It previews first
-and only acts on a second, explicitly confirmed run.
+and only acts on a second, explicitly confirmed run, and the restore itself is
+reversible with `--undo`.
+
+## Rounds
+
+The loop is meant to repeat. After an implementation the user can either keep going
+directly, or run `/probe <question>` again to open a **new research round** — writes
+become blocked once more and a fresh snapshot is taken. Round 3 is as normal as round 1.
+
+Each round keeps its own restore point, so returning to research never costs the
+ability to undo earlier work. When the phase is `implementing` and the user asks a
+research-shaped question, say that `/probe <question>` would open a new round — do not
+silently start investigating with writes still unlocked.

@@ -14,10 +14,13 @@ block on everything else.
    → git snapshot taken, sandbox created
    → reads, greps, runs the test suite, writes a benchmark IN THE SANDBOX, runs it
    → reports the measurement, then stops
+   → ask follow-ups, test more, as many rounds of back-and-forth as it takes
 you: "ok, implement it"
 /probe implement          → plan mode, writes the plan, asks for approval
-you approve the plan      → writes unlock
-/probe restore            → working tree back to the moment probe started
+you approve the plan      → writes unlock, implementation proceeds
+                          → keep executing directly, OR
+/probe <next question>    → round 2: writes blocked again, research resumes
+/probe restore            → rewind; every round keeps its own restore point
 ```
 
 ## Why it holds
@@ -83,7 +86,7 @@ process spawn.
 ### Option B — installer script
 
 ```bash
-git clone <your-git-url> probe-mode && cd probe-mode
+git clone https://github.com/AlstonChan/probe-mode.git && cd probe-mode
 ./install.sh
 ```
 
@@ -97,10 +100,10 @@ Restart Claude Code after either option.
 
 | | |
 |---|---|
-| `/probe <question>` | Arm the mode and start investigating |
-| `/probe status` | Current phase, sandbox path, snapshot ref |
+| `/probe <question>` | Arm the mode, or open a new research round if already armed |
+| `/probe status` | Phase, round, sandbox, every round’s restore point |
 | `/probe implement` | Move to plan mode (writes stay blocked until you approve) |
-| `/probe restore` | Preview the rollback, then apply it after you confirm |
+| `/probe restore` | Preview the rollback, then apply it after you confirm (`--undo` reverses it) |
 | `/probe stop` | Disarm without restoring |
 
 `/probe` is `disable-model-invocation: true` — Claude cannot arm or disarm it, only you can.
@@ -130,13 +133,41 @@ bash, and treating it as a shell-writable root would permit `rm -rf` on your ent
 history. Reading plans from the shell (`cat`, `ls`) is fine. The rest of `~/.claude` —
 `settings.json`, `hooks/`, `skills/` — stays sealed in every phase.
 
+## Rounds
+
+The loop is meant to repeat:
+
+```
+round 1:  research ... research ... research  →  plan  →  implement
+          then either keep executing directly,
+          or /probe <question> again  →  round 2: research → plan → implement
+```
+
+Running `/probe <question>` while already armed opens a **new research round**: writes are
+blocked again and a fresh snapshot is taken. Round 3 is as normal as round 1.
+
+Each round keeps its own restore point, pinned to its own git ref — round 1 at
+`refs/probe/<session>`, later rounds at `refs/probe/<session>-r<N>`. Going back to research
+never costs you the ability to undo earlier work.
+
 ## Restore
 
 `/probe start` takes a git snapshot using a temporary index, so it captures both
 uncommitted changes and untracked files without touching your real index or working
 tree. `/probe restore` stashes whatever is current (safety net — nothing is destroyed),
-resets to the original commit, then restores the snapshot exactly. Your branch is left
+resets to the target commit, then restores the snapshot exactly. Your branch is left
 where it was.
+
+| | |
+|---|---|
+| `restore` | start of the **current** round (the default) |
+| `restore --round N` | start of a specific round |
+| `restore --all` | the very beginning, round 1 |
+| `restore --undo` | reverse the last restore |
+
+It previews first and changes nothing until you re-run with `--force`. Before applying, it
+snapshots where you are, so **the restore itself is undoable** — and rolled-back commits
+stay in `git reflog` on top of that.
 
 **In a non-git directory there is no snapshot.** `/probe start` says so in red, and the
 status line keeps saying so, because restore cannot save you there.
@@ -144,13 +175,18 @@ status line keeps saying so, because restore cannot save you there.
 ## Testing
 
 ```bash
-node --test test/guard.test.mjs
+node --test test/guard.test.mjs test/rounds.test.mjs
 ```
 
-71 assertions covering the allow/deny matrix: sandbox and plan-directory writes, config
-sealing, path traversal, the shell deny-list, and fail-closed behavior. It runs the real
-hook as a subprocess against synthetic payloads and points `CLAUDE_CONFIG_DIR` at a temp
-directory, so it never touches your real config. Run it before publishing a change.
+102 assertions. `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
+writes, config sealing, path traversal, the shell deny-list, shell parsing, and fail-closed
+behavior. `rounds.test.mjs` drives the real `probe-ctl` against a throwaway git repo to
+cover round creation, snapshot durability under `git gc`, restore targeting, `--undo`, and
+loading state files written before rounds existed.
+
+Both run the real hooks as subprocesses and point `CLAUDE_CONFIG_DIR` at a temp directory,
+so they never touch your real config. Run them before publishing a change — the deny cases
+are the security contract.
 
 ## Known limits
 
@@ -168,6 +204,10 @@ directory, so it never touches your real config. Run it before publishing a chan
   cover package managers, migrations, deploys, publishing and downloads, but a build tool
   nobody thought of will pass. Treat the git snapshot, not the deny-list, as the real
   guarantee.
+- **Shell parsing is good, not complete.** `$VAR` expands only when assigned in the same
+  command; an environment variable the guard cannot see makes the command deny rather than
+  guess. Command substitution (`` $(...) ``) and `pushd`/`popd` are not tracked. Denying on
+  the unknown is deliberate — the failure direction is friction, never a silent allow.
 
 ## Files
 
@@ -179,12 +219,13 @@ hooks/probe-guard.mjs            PreToolUse — the enforcement
 hooks/probe-promote.mjs          PostToolUse on ExitPlanMode — the only unlock
 hooks/probe-context.mjs          UserPromptSubmit — re-injects the contract
 hooks/probe-cleanup.mjs          SessionEnd — age-prunes only; never unlocks
-hooks/probe-ctl.mjs              start/status/implement/restore/stop + snapshots
+hooks/probe-ctl.mjs              start/status/implement/restore/stop + rounds & snapshots
 hooks/probe-statusline.mjs       status line row (invisible when off)
 hooks/probe-lib.mjs              shared helpers
 skills/probe/SKILL.md            the /probe command and its contract
 LICENSE                          MIT
-test/guard.test.mjs              regression suite (node --test)
+test/guard.test.mjs              guard allow/deny matrix (node --test)
+test/rounds.test.mjs             rounds, snapshots, restore targeting
 install.sh                       standalone installer / uninstaller
 ```
 

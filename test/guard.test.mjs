@@ -21,7 +21,9 @@ const SID = 'test-session';
 let CFG, SANDBOX, PLANS, PROJECT;
 
 before(() => {
-  CFG = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-test-'));
+  // Deliberately under the home directory, not tmpdir, so that `~` expansion can
+  // be tested against a real sandbox path. Removed again in after().
+  CFG = fs.mkdtempSync(path.join(os.homedir(), '.probe-test-'));
   SANDBOX = path.join(CFG, 'probe-state', SID, 'sandbox');
   PLANS = path.join(CFG, 'plans');
   PROJECT = path.join(CFG, 'project');
@@ -246,6 +248,80 @@ describe('shell: the sandbox is writable', () => {
 
   test('denies tee into the project', () => {
     assert.equal(sh(`python ${SANDBOX}/bench.py | tee bench.log`), 'deny');
+  });
+});
+
+describe('shell parsing: legitimate sandbox scripting is allowed', () => {
+  // Every case here was falsely denied before the guard became shell-aware.
+  // They are the shapes a research round actually produces.
+  before(() => setPhase('probe'));
+
+  test('expands a $VAR assigned in the same command', () => {
+    assert.equal(sh(`SB=${SANDBOX}; echo hi > "$SB/out.txt"`), 'allow');
+  });
+
+  test('expands ${VAR} braces', () => {
+    assert.equal(sh(`SB=${SANDBOX}; echo hi > "\${SB}/out.txt"`), 'allow');
+  });
+
+  test('expands ~ to the home directory', () => {
+    const tildePath = `~/${path.basename(CFG)}/probe-state/${SID}/sandbox/o.txt`;
+    assert.equal(sh(`echo hi > ${tildePath}`), 'allow');
+  });
+
+  test('a heredoc body is data, not a set of paths', () => {
+    assert.equal(sh(`cat > ${SANDBOX}/s.sh <<'EOF'\nrm -rf /etc\nsrc/main.py\nEOF`), 'allow');
+  });
+
+  test('a non-mutating segment is not scanned: read project, then clean sandbox', () => {
+    assert.equal(sh(`cat ${PROJECT}/README.md; rm -f ${SANDBOX}/tmp.json`), 'allow');
+  });
+
+  test('running a project file then cleaning the sandbox', () => {
+    assert.equal(sh(`node ${PROJECT}/src/main.py; rm -f ${SANDBOX}/tmp.json`), 'allow');
+  });
+
+  test('grep the project, then write results to the sandbox', () => {
+    assert.equal(sh(`grep -rn x ${PROJECT}; echo done > ${SANDBOX}/o.txt`), 'allow');
+  });
+
+  test('a word in a quoted message cannot become a path', () => {
+    // `src` is a real directory in PROJECT; as prose it must not be a target.
+    assert.equal(sh(`rm -f ${SANDBOX}/x.json && echo "src cleaned up"`), 'allow');
+  });
+
+  test('a quoted path with a space still resolves', () => {
+    assert.equal(sh(`rm -f "${SANDBOX}/a file.txt"`), 'allow');
+  });
+});
+
+describe('shell parsing: multi-segment commands still deny correctly', () => {
+  // The per-segment rewrite must not let anything escape. `cd` state has to be
+  // carried between segments or the first case below silently passes.
+  before(() => setPhase('probe'));
+
+  test('cd into the sandbox then escaping upward is denied', () => {
+    assert.equal(sh(`cd ${SANDBOX} && rm -rf ../../../../${path.basename(PROJECT)}`), 'deny');
+  });
+
+  test('a sandbox write followed by a project rm is denied', () => {
+    assert.equal(sh(`echo x > ${SANDBOX}/a.txt && rm -rf ${PROJECT}/src`), 'deny');
+  });
+
+  test('cd into the project then rm is denied', () => {
+    assert.equal(sh(`cd ${PROJECT} && rm -rf src`), 'deny');
+  });
+
+  test('cd into the sandbox then write is allowed', () => {
+    assert.equal(sh(`cd ${SANDBOX} && echo hi > out.txt`), 'allow');
+  });
+
+  test('a mutator with an unexpandable variable is denied', () => {
+    assert.equal(sh('rm -rf "$UNKNOWN_DIR/stuff"'), 'deny');
+  });
+
+  test('git commit hidden behind a harmless first segment is denied', () => {
+    assert.equal(sh(`cat ${PROJECT}/README.md && git commit -am wip`), 'deny');
   });
 });
 
