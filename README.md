@@ -182,11 +182,13 @@ status line keeps saying so, because restore cannot save you there.
 node --test test/guard.test.mjs test/rounds.test.mjs
 ```
 
-102 assertions. `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
-writes, config sealing, path traversal, the shell deny-list, shell parsing, and fail-closed
-behavior. `rounds.test.mjs` drives the real `probe-ctl` against a throwaway git repo to
-cover round creation, snapshot durability under `git gc`, restore targeting, `--undo`, and
-loading state files written before rounds existed.
+107 assertions. `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
+writes, config sealing, path traversal, the shell deny-list, shell parsing, fail-closed
+behavior, and that deny messages name the right command for the install layout.
+`rounds.test.mjs` drives the real `probe-ctl` against a throwaway git repo to cover round
+creation, snapshot durability under `git gc`, restore targeting, `--undo`, loading state
+files written before rounds existed, and that `/probe` vs `/probe-mode:probe` resolves
+correctly from the install layout.
 
 Both run the real hooks as subprocesses and point `CLAUDE_CONFIG_DIR` at a temp directory,
 so they never touch your real config. Run them before publishing a change — the deny cases

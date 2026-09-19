@@ -12,10 +12,16 @@ import os from 'node:os';
 const BACKSLASH = String.fromCharCode(92);
 const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const STATE_DIR = path.join(CONFIG_DIR, 'probe-state');
-// Plan mode writes the plan to a file here. Blocking it would break /probe
-// implement at the exact moment it is supposed to work. A plan file is notes,
+// Plan mode writes the plan to a file here. Blocking it would break the implement
+// step at the exact moment it is supposed to work. A plan file is notes,
 // never a project change, so it stays writable in every phase.
 const PLANS_DIR = path.join(CONFIG_DIR, 'plans');
+
+// Same detection as probe-lib.mjs, duplicated on purpose (see the NOTE in that file:
+// this guard never imports anything, so it can fail closed even if the shared lib breaks).
+const isPlugin = fs.existsSync(path.join(path.dirname(import.meta.dirname), '.claude-plugin'))
+  || Boolean(process.env.CLAUDE_PLUGIN_ROOT);
+const CMD = isPlugin ? '/probe-mode:probe' : '/probe';
 
 const emit = (decision, reason) => {
   process.stdout.write(JSON.stringify({
@@ -46,7 +52,7 @@ try {
 } catch (err) {
   // The file exists but we cannot read it. That is a broken guard, not an absent
   // one, so deny rather than assume the session is unprotected.
-  deny(`probe-mode state file is unreadable (${err && err.message}). Denying until /probe status or /probe stop resolves it.`);
+  deny(`probe-mode state file is unreadable (${err && err.message}). Denying until ${CMD} status or ${CMD} stop resolves it.`);
 }
 
 try {
@@ -85,7 +91,7 @@ try {
     : 'probe mode (research only)';
   const hint =
     `Sandbox (writable): ${state.sandbox}\n` +
-    `Implementation requires an explicit request from the user, then /probe implement, ` +
+    `Implementation requires an explicit request from the user, then ${CMD} implement, ` +
     `then an approved plan. Nothing outside the sandbox may change before that.`;
 
   // ---------- file tools ----------
@@ -288,5 +294,5 @@ try {
   );
 } catch (err) {
   // Fail closed. A broken guard must never become an open door.
-  deny(`probe-mode guard failed (${err && err.message}); denying to stay safe. Run /probe status.`);
+  deny(`probe-mode guard failed (${err && err.message}); denying to stay safe. Run ${CMD} status.`);
 }

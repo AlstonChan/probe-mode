@@ -67,6 +67,33 @@ function decide(toolName, toolInput, sessionId = SID) {
 const sh = (command) => decide('Bash', { command });
 const write = (file_path) => decide('Write', { file_path });
 
+// Same isolation technique as test/rounds.test.mjs: this repo checkout always has
+// .claude-plugin/ next to hooks/ (it's the plugin's own manifest), so the standalone
+// branch can only be exercised by copying probe-guard.mjs into a dir without one.
+function withIsolatedGuard(pluginLike, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-iso-guard-'));
+  const hooksDir = path.join(dir, 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  fs.copyFileSync(GUARD, path.join(hooksDir, 'probe-guard.mjs'));
+  if (pluginLike) fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
+  try {
+    return fn(path.join(hooksDir, 'probe-guard.mjs'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function decideAt(guardPath, toolName, toolInput) {
+  const payload = JSON.stringify({
+    session_id: SID, cwd: PROJECT, tool_name: toolName, tool_input: toolInput,
+  });
+  const out = execFileSync(process.execPath, [guardPath], {
+    input: payload, encoding: 'utf8',
+    env: { ...process.env, CLAUDE_CONFIG_DIR: CFG },
+  });
+  return JSON.parse(out).hookSpecificOutput.permissionDecisionReason;
+}
+
 // ---------------------------------------------------------------------------
 
 describe('inert when probe mode is off', () => {
@@ -330,5 +357,22 @@ describe('fails closed', () => {
   test('denies when the state file exists but is unreadable', () => {
     fs.writeFileSync(path.join(CFG, 'probe-state', `${SID}.json`), 'not json {{{');
     assert.equal(write(path.join(PROJECT, 'src/main.py')), 'deny');
+  });
+});
+
+describe('deny messages name the right command for the install layout', () => {
+  before(() => setPhase('probe'));
+
+  test('standalone layout (no .claude-plugin sibling) hints at plain /probe', () => {
+    const reason = withIsolatedGuard(false, (guardPath) =>
+      decideAt(guardPath, 'Write', { file_path: path.join(PROJECT, 'src/main.py') }));
+    assert.match(reason, /\/probe implement/);
+    assert.doesNotMatch(reason, /probe-mode:probe/);
+  });
+
+  test('plugin layout (.claude-plugin sibling present) hints at /probe-mode:probe', () => {
+    const reason = withIsolatedGuard(true, (guardPath) =>
+      decideAt(guardPath, 'Write', { file_path: path.join(PROJECT, 'src/main.py') }));
+    assert.match(reason, /\/probe-mode:probe implement/);
   });
 });
