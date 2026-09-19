@@ -10,8 +10,15 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
-  STATE_DIR, readState, writeState, normalizeRounds, roundRef, undoRef,
+  STATE_DIR, readState, writeState, normalizeRounds, roundRef, undoRef, CMD,
 } from './probe-lib.mjs';
+
+const PHASE_HINT = {
+  probe: `Investigating. Say \`${CMD} implement\` when you want a plan.`,
+  planning: 'Plan not approved yet. Writes stay blocked until ExitPlanMode is approved.',
+  implementing: `Writes unlocked. \`${CMD} <question>\` starts another research round; \`${CMD} restore\` rewinds.`,
+  off: `Disarmed. \`${CMD} <question>\` arms a new round.`,
+};
 
 const sid = process.env.CLAUDE_CODE_SESSION_ID;
 if (!sid) { console.error('CLAUDE_CODE_SESSION_ID not set; run this from inside a Claude Code session.'); process.exit(1); }
@@ -157,11 +164,15 @@ if (cmd === 'start') {
       snapshot: snap, round: 1,
       rounds: snap ? [{ n: 1, at: snap.at, ref: snap.ref, head: snap.head, branch: snap.branch }] : [],
     });
+    const snapLine = snap
+      ? `${snap.ref.slice(0, 12)} (restorable via ${CMD} restore)`
+      : `NONE — not a git repository, so ${CMD} restore cannot roll anything back`;
     console.log(`PROBE MODE ON (round 1, phase: probe)
 Sandbox (only writable path): ${sandbox}
 Project: ${cwd}
-Snapshot: ${snap ? `${snap.ref.slice(0, 12)} (restorable via /probe restore)` : 'NONE — not a git repository, so /probe restore cannot roll anything back'}
+Snapshot: ${snapLine}
 Writes outside the sandbox are denied by hook until a plan is approved.`);
+    console.log(`\n${PHASE_HINT.probe}`);
   } else {
     // Already armed: begin a NEW round. Earlier snapshots are never overwritten.
     const rounds = normalizeRounds(existing);
@@ -181,6 +192,7 @@ Project: ${cwd}
 Snapshot: ${snap ? `${snap.ref.slice(0, 12)} pinned at ${roundRef(sid, n)}` : 'NONE — not a git repository'}
 WRITES ARE BLOCKED AGAIN until a new plan is approved.
 Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', ') || 'none'}.`);
+    console.log(`\n${PHASE_HINT.probe}`);
   }
 } else if (cmd === 'implement') {
   if (!existing) { console.log('Probe mode is not active.'); process.exit(0); }
@@ -192,16 +204,11 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   console.log(restore(existing, argv.includes('--force')));
 } else if (cmd === 'stop') {
   if (existing) { existing.phase = 'off'; writeState(sid, existing); }
-  console.log('Probe mode OFF. Snapshots kept; /probe restore still works this session.');
+  console.log(`Probe mode OFF. Snapshots kept; ${CMD} restore still works this session.`);
 } else {
   if (!existing) { console.log('Probe mode: OFF'); process.exit(0); }
   const rounds = normalizeRounds(existing);
-  const next = {
-    probe: 'Investigating. Say `/probe implement` when you want a plan.',
-    planning: 'Plan not approved yet. Writes stay blocked until ExitPlanMode is approved.',
-    implementing: 'Writes unlocked. `/probe <question>` starts another research round; `/probe restore` rewinds.',
-    off: 'Disarmed. `/probe <question>` arms a new round.',
-  }[existing.phase] || '';
+  const next = PHASE_HINT[existing.phase] || '';
   console.log(`Probe mode: ${existing.phase} (round ${existing.round || rounds.length || 1})
 Sandbox:  ${existing.sandbox}
 Project:  ${existing.cwd}

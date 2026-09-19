@@ -28,6 +28,26 @@ const state = () => JSON.parse(fs.readFileSync(path.join(CFG, 'probe-state', `${
 const refOf = (r) => { try { return git(['rev-parse', '--verify', '--quiet', r]); } catch { return null; } };
 const content = () => fs.readFileSync(path.join(REPO, 'f.txt'), 'utf8').trim();
 
+// The command name (/probe vs /probe-mode:probe) is resolved by checking for a
+// .claude-plugin/ dir next to hooks/. This repo checkout always has one (it's the
+// plugin's own manifest), so running probe-ctl.mjs from its real path here always
+// looks like a plugin install regardless of env vars. To exercise the standalone
+// branch, copy the files under test into an isolated dir that has no such sibling.
+function withIsolatedHooks(pluginLike, files, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-iso-'));
+  const hooksDir = path.join(dir, 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  for (const f of files) {
+    fs.copyFileSync(path.join(import.meta.dirname, '..', 'hooks', f), path.join(hooksDir, f));
+  }
+  if (pluginLike) fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
+  try {
+    return fn(path.join(hooksDir, 'probe-ctl.mjs'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function freshRepo() {
   fs.rmSync(path.join(CFG, 'probe-state'), { recursive: true, force: true });
   fs.rmSync(REPO, { recursive: true, force: true });
@@ -175,5 +195,35 @@ describe('state files written before rounds existed still work', () => {
     assert.equal(s.rounds.length, 2);
     assert.equal(s.rounds[0].ref, oldRef);
     assert.equal(refOf(`refs/probe/${SID}`), oldRef);
+  });
+});
+
+describe('command name resolves from install layout', () => {
+  // freshRepo() per test (not once in before()) so every case hits the FRESH-install
+  // branch of `start` (the one that mentions `restore`), not the new-round branch —
+  // state persists across calls to the same SID otherwise.
+  const runIsolated = (pluginLike, extraEnv = {}) => {
+    freshRepo();
+    return withIsolatedHooks(pluginLike, ['probe-ctl.mjs', 'probe-lib.mjs'], (ctlPath) =>
+      execFileSync(process.execPath, [ctlPath, 'start'], {
+        cwd: REPO, encoding: 'utf8',
+        env: { ...process.env, CLAUDE_CONFIG_DIR: CFG, CLAUDE_CODE_SESSION_ID: SID, ...extraEnv },
+      }));
+  };
+
+  test('standalone layout (no .claude-plugin sibling, no env var) uses plain /probe', () => {
+    const out = runIsolated(false);
+    assert.match(out, /\/probe restore/);
+    assert.doesNotMatch(out, /probe-mode:probe/);
+  });
+
+  test('plugin layout (.claude-plugin sibling present) uses /probe-mode:probe', () => {
+    const out = runIsolated(true);
+    assert.match(out, /\/probe-mode:probe restore/);
+  });
+
+  test('CLAUDE_PLUGIN_ROOT alone also selects /probe-mode:probe', () => {
+    const out = runIsolated(false, { CLAUDE_PLUGIN_ROOT: 'C:\\fake\\plugin\\root' });
+    assert.match(out, /\/probe-mode:probe restore/);
   });
 });

@@ -22,6 +22,13 @@ Run the control command for `$ARGUMENTS`, then follow the contract below.
   `--all` goes back to the very beginning, and `--undo` reverses the last restore.
 - `stop` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" stop`.
 
+The exact command name depends on how this was installed — plugin installs use
+`/probe-mode:probe`, standalone installs use plain `/probe`. Never hardcode `/probe`
+yourself when telling the user what to type: use exactly the name the control script's
+own most recent output used (it already resolves correctly for this install). The
+`/probe ...` examples elsewhere in this file are illustrative shorthand, not literal
+text to repeat.
+
 ## The contract
 
 **You may**: read, search, grep, fetch, run the test suite, run benchmarks, profile,
@@ -53,9 +60,9 @@ against the actual API. Then report the measurement, not the intuition.
 
 End with: what you verified, the evidence for it, what you could not verify, and the
 shape of the change you would make. Then **stop**. Do not offer to implement in a
-way that reads as a request for permission — one closing line at most:
-
-> Say `/probe implement` when you want a plan.
+way that reads as a request for permission — one closing line at most, and use the
+"ask for a plan" hint the control script printed at the start of this round (also
+re-affirmed every turn) rather than composing your own wording.
 
 ## Unlocking implementation
 
@@ -77,5 +84,6 @@ become blocked once more and a fresh snapshot is taken. Round 3 is as normal as 
 
 Each round keeps its own restore point, so returning to research never costs the
 ability to undo earlier work. When the phase is `implementing` and the user asks a
-research-shaped question, say that `/probe <question>` would open a new round — do not
-silently start investigating with writes still unlocked.
+research-shaped question, say that re-running the probe command with the new question
+(the name the control script's output used) would open a new round — do not silently
+start investigating with writes still unlocked.

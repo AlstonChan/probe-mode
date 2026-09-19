@@ -12,6 +12,15 @@ import os from 'node:os';
 const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 export const STATE_DIR = path.join(CONFIG_DIR, 'probe-state');
 
+// A plugin-cache install always has a .claude-plugin/ manifest dir next to hooks/; a
+// standalone install.sh install never does. CLAUDE_PLUGIN_ROOT is ORed in too, but it is
+// only reliably set for true hooks.json-dispatched processes, not for probe-ctl.mjs
+// (invoked via a Bash tool call built from SKILL.md prose) — so the directory check is
+// the signal that actually matters here, not a redundant belt-and-suspenders extra.
+const isPlugin = fs.existsSync(path.join(path.dirname(import.meta.dirname), '.claude-plugin'))
+  || Boolean(process.env.CLAUDE_PLUGIN_ROOT);
+export const CMD = isPlugin ? '/probe-mode:probe' : '/probe';
+
 export function statePath(sessionId) {
   return path.join(STATE_DIR, `${sessionId}.json`);
 }

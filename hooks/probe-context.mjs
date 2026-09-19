@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // UserPromptSubmit: re-injects the probe-mode contract every turn so it survives
 // compaction and cannot drift.
-import { readStdin, readState } from './probe-lib.mjs';
+import { readStdin, readState, CMD } from './probe-lib.mjs';
 
 const input = readStdin();
 const state = readState(input.session_id);
@@ -21,8 +21,8 @@ const round = state.round || 1;
 if (state.phase === 'implementing') {
   emit([
     `PROBE MODE: round ${round}, writes unlocked (plan approved). Execute directly.`,
-    'To research again instead, the user runs `/probe <question>` — that opens a new',
-    'round and re-blocks writes. `/probe restore` rewinds; every round is restorable.',
+    `To research again instead, the user runs \`${CMD} <question>\` — that opens a new`,
+    `round and re-blocks writes. \`${CMD} restore\` rewinds; every round is restorable.`,
   ].join('\n'));
 }
 
@@ -37,6 +37,7 @@ emit([
   '- Scripts you write to benchmark, validate, test or assert an idea go in the sandbox.',
   '  Run them from the project directory if they need to import project code; just do not write there.',
   '- Do NOT start implementing. Not "a small fix first", not "while I am here".',
+  `- To ask for a plan when you are ready: \`${CMD} implement\`.`,
   planning
     ? '- The user has asked for implementation. Write the plan to the plan file (that directory is writable), then call ExitPlanMode. Everything else stays blocked until they approve it.'
     : '- Entering plan mode requires an EXPLICIT request from the user. Do not call EnterPlanMode on your own initiative, and do not ask for it repeatedly. Report findings and stop.',
