@@ -8,13 +8,26 @@ import os from 'node:os';
 const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const STATE_DIR = path.join(CONFIG_DIR, 'probe-state');
 
-// Same detection as probe-lib.mjs. A statusLine command is always a literal, user-typed
-// path in the user's own settings.json (plugins cannot ship one), so it never goes
-// through plugin dispatch and CLAUDE_PLUGIN_ROOT is never set for it — the directory
-// check is what actually matters here.
-const isPlugin = fs.existsSync(path.join(path.dirname(import.meta.dirname), '.claude-plugin'))
-  || Boolean(process.env.CLAUDE_PLUGIN_ROOT);
-const CMD = isPlugin ? '/probe-mode:probe' : '/probe';
+// `probe-ctl.mjs setup` relocates a copy of this file to a stable, update-proof path
+// outside the plugin cache (~/.claude/probe-state/), so it can survive `claude plugin
+// update` deleting the versioned cache dir this file originally shipped in. But that
+// relocation breaks the structural check below, which only works from the file's
+// ORIGINAL location next to .claude-plugin/ — a relocated copy would permanently and
+// incorrectly resolve isPlugin = false. `setup` already knows the right answer for
+// certain at copy time, so it bakes it in as a CLI flag instead of relying on this file
+// to re-derive something it structurally can't anymore.
+// The flag value omits the leading "/" deliberately: on a machine with Git Bash, the
+// MSYS layer treats a leading-slash argv token as a POSIX path and silently rewrites it
+// (confirmed: a bare --cmd=/probe was mangled into a Windows Git-install path during
+// testing). Dropping the slash sidesteps that path-conversion heuristic entirely; it's
+// added back below.
+const cmdFlag = process.argv.find((a) => a.startsWith('--cmd='));
+let CMD = cmdFlag && `/${cmdFlag.slice('--cmd='.length)}`;
+if (!CMD) {
+  const isPlugin = fs.existsSync(path.join(path.dirname(import.meta.dirname), '.claude-plugin'))
+    || Boolean(process.env.CLAUDE_PLUGIN_ROOT);
+  CMD = isPlugin ? '/probe-mode:probe' : '/probe';
+}
 const C = {
   reset: '\x1b[0m', dim: '\x1b[2m', bold: '\x1b[1m',
   amber: '\x1b[33m', cyan: '\x1b[36m', green: '\x1b[32m', red: '\x1b[31m',

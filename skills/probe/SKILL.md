@@ -2,7 +2,7 @@
 name: probe
 description: Auto-mode research that can never touch the project. Sources freely, writes benchmark/validation scripts only in a sandbox, proves the idea, and refuses to implement until you explicitly ask and approve a plan.
 disable-model-invocation: true
-argument-hint: [start|status|implement|restore|stop] <question>
+argument-hint: [start|status|implement|restore|stop|setup] <question>
 allowed-tools: Bash(node *)
 ---
 
@@ -21,6 +21,10 @@ Run the control command for `$ARGUMENTS`, then follow the contract below.
   Defaults to the start of the current round. `--round N` targets a specific round,
   `--all` goes back to the very beginning, and `--undo` reverses the last restore.
 - `stop` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" stop`.
+- `setup` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" setup`, then relay what it
+  printed verbatim. Wires up the status-line indicator for a plugin install (plugins
+  cannot ship a `statusLine` themselves); a no-op under a standalone install, which
+  already has one. Safe to re-run any time, including after this plugin updates.
 
 The exact command name depends on how this was installed — plugin installs use
 `/probe-mode:probe`, standalone installs use plain `/probe`. Never hardcode `/probe`

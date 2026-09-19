@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// probe-ctl: start / status / implement / restore / stop
+// probe-ctl: start / status / implement / restore / stop / setup
 //
 // Rounds: the loop is research -> plan -> implement, then either keep executing
 // or start another research round. Each round takes its own snapshot pinned to
@@ -10,7 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
-  STATE_DIR, readState, writeState, normalizeRounds, roundRef, undoRef, CMD,
+  CONFIG_DIR, STATE_DIR, readState, writeState, normalizeRounds, roundRef, undoRef, CMD,
 } from './probe-lib.mjs';
 
 const PHASE_HINT = {
@@ -151,6 +151,89 @@ function restore(state, force) {
   return lines.join('\n');
 }
 
+const toForwardSlash = (p) => p.split(path.sep).join('/');
+
+function backupTimestamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+const statuslineSource = path.join(import.meta.dirname, 'probe-statusline.mjs');
+const statuslineStable = path.join(STATE_DIR, 'probe-statusline.mjs');
+
+/**
+ * Plugins cannot ship a statusLine, so a plugin install has no status-bar indicator
+ * unless the user hand-edits their own settings.json. This wires it up: copies the
+ * statusline script to a stable path outside the versioned plugin cache (so it survives
+ * `claude plugin update` deleting that directory), and merges a statusLine entry into
+ * settings.json pointing there — mirroring install.sh's own backup/merge/foreign-check
+ * logic, but writing only the statusLine key, never hooks.
+ */
+function setupStatusline() {
+  if (CMD === '/probe') {
+    console.log('Standalone install — install.sh already wired up the status line; nothing to do here.');
+    return;
+  }
+
+  fs.mkdirSync(STATE_DIR, { recursive: true });
+  fs.copyFileSync(statuslineSource, statuslineStable);
+
+  const settingsPath = path.join(CONFIG_DIR, 'settings.json');
+  const existed = fs.existsSync(settingsPath);
+  if (existed) fs.copyFileSync(settingsPath, `${settingsPath}.probe-backup-${backupTimestamp()}`);
+
+  let settings;
+  try {
+    settings = existed ? JSON.parse(fs.readFileSync(settingsPath, 'utf8')) : {};
+  } catch (err) {
+    console.log(`settings.json is not valid JSON (${err.message}). Backed it up but left it ` +
+      'untouched — fix the JSON, then re-run setup.');
+    return;
+  }
+
+  // --cmd= carries no leading "/": on a machine with Git Bash, MSYS rewrites a
+  // leading-slash argv token as if it were a POSIX path (probe-statusline.mjs adds the
+  // slash back). The stable path is built with forward slashes for the same reason
+  // install.sh's topath()/cygpath -m exists — Node accepts "/" on Windows regardless of
+  // which shell runs this command.
+  const command = `node "${toForwardSlash(statuslineStable)}" --cmd=${CMD.slice(1)}`;
+
+  const foreign = settings.statusLine && !String(settings.statusLine.command).includes('probe-statusline');
+  if (foreign) {
+    console.log(`You already have a statusLine configured, so it was left untouched.
+For the probe indicator, point statusLine at:
+  ${command}`);
+    return;
+  }
+
+  settings.statusLine = { type: 'command', command, padding: 0, refreshInterval: 2 };
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  console.log(`Status line wired up.
+Copied the current probe-statusline.mjs to: ${statuslineStable}
+${existed ? 'Backed up your previous settings.json first.' : 'Created settings.json.'}
+Re-run this any time to refresh it — it always overwrites the copy above, so keep any
+local edits to it elsewhere. Restart Claude Code to see the indicator.`);
+}
+
+/** Nudges status toward `setup` when it would actually help: never under a standalone
+ *  install (already wired by install.sh), and only when the stable copy is missing or
+ *  stale relative to the plugin's current probe-statusline.mjs. */
+function statuslineNudge() {
+  if (CMD === '/probe') return '';
+  if (!fs.existsSync(statuslineStable)) {
+    return `\nNo status-line indicator wired up for this plugin install. Run \`${CMD} setup\` once to add it.`;
+  }
+  try {
+    if (fs.readFileSync(statuslineStable, 'utf8') !== fs.readFileSync(statuslineSource, 'utf8')) {
+      return `\nThe status-line script has changed since you last ran \`${CMD} setup\`. Run it again to refresh.`;
+    }
+  } catch {
+    // Unreadable stable copy isn't fatal — just skip the nudge rather than crash status.
+  }
+  return '';
+}
+
 const existing = readState(sid);
 
 if (cmd === 'start') {
@@ -205,8 +288,10 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
 } else if (cmd === 'stop') {
   if (existing) { existing.phase = 'off'; writeState(sid, existing); }
   console.log(`Probe mode OFF. Snapshots kept; ${CMD} restore still works this session.`);
+} else if (cmd === 'setup') {
+  setupStatusline();
 } else {
-  if (!existing) { console.log('Probe mode: OFF'); process.exit(0); }
+  if (!existing) { console.log(`Probe mode: OFF${statuslineNudge()}`); process.exit(0); }
   const rounds = normalizeRounds(existing);
   const next = PHASE_HINT[existing.phase] || '';
   console.log(`Probe mode: ${existing.phase} (round ${existing.round || rounds.length || 1})
@@ -220,5 +305,5 @@ Rounds:`);
     console.log('  none (not a git repository — restore is unavailable)');
   }
   if (existing.undo) console.log(`Undo point: ${String(existing.undo.ref).slice(0, 12)} (${existing.undo.at})`);
-  console.log(`\n${next}`);
+  console.log(`\n${next}${statuslineNudge()}`);
 }

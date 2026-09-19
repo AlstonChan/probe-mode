@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+export const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 export const STATE_DIR = path.join(CONFIG_DIR, 'probe-state');
 
 // A plugin-cache install always has a .claude-plugin/ manifest dir next to hooks/; a

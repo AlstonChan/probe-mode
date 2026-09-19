@@ -61,8 +61,17 @@ The skill becomes `/probe-mode:probe`, since plugin skills are always namespaced
 Installing with `install.sh` instead keeps it as plain `/probe`.
 
 **Caveat:** a plugin cannot ship a `statusLine` — plugin `settings.json` only accepts
-`agent` and `subagentStatusLine`. To get the status indicator, add this to
-`~/.claude/settings.json` yourself:
+`agent` and `subagentStatusLine`. Run `/probe-mode:probe setup` once to get the status
+indicator: it copies `probe-statusline.mjs` to a stable path outside the versioned plugin
+cache (so `claude plugin update` deleting that directory doesn't break it) and wires
+`~/.claude/settings.json` to point there, backing up your existing settings first and
+never touching an existing `statusLine` that isn't already ours. Safe to re-run any time
+— re-run it after this plugin updates to pick up statusline changes, since the copy is a
+point-in-time snapshot (`/probe-mode:probe status` nudges you when it's gone stale).
+
+Prefer to do it by hand, or already have a foreign `statusLine` to merge around yourself?
+Add this to `~/.claude/settings.json`, replacing `<plugin-dir>` with this plugin's actual
+install path (`claude plugin list` or check `~/.claude/plugins/installed_plugins.json`):
 
 ```json
 {
@@ -105,6 +114,7 @@ Restart Claude Code after either option.
 | `/probe implement` | Move to plan mode (writes stay blocked until you approve) |
 | `/probe restore` | Preview the rollback, then apply it after you confirm (`--undo` reverses it) |
 | `/probe stop` | Disarm without restoring |
+| `/probe setup` | Wire up the status-line indicator on a plugin install (no-op on standalone) |
 
 `/probe` is `disable-model-invocation: true` — Claude cannot arm or disarm it, only you can.
 
@@ -179,16 +189,18 @@ status line keeps saying so, because restore cannot save you there.
 ## Testing
 
 ```bash
-node --test test/guard.test.mjs test/rounds.test.mjs
+node --test test/guard.test.mjs test/rounds.test.mjs test/setup.test.mjs
 ```
 
-107 assertions. `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
+120 assertions. `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
 writes, config sealing, path traversal, the shell deny-list, shell parsing, fail-closed
 behavior, and that deny messages name the right command for the install layout.
 `rounds.test.mjs` drives the real `probe-ctl` against a throwaway git repo to cover round
 creation, snapshot durability under `git gc`, restore targeting, `--undo`, loading state
 files written before rounds existed, and that `/probe` vs `/probe-mode:probe` resolves
-correctly from the install layout.
+correctly from the install layout. `setup.test.mjs` covers the `setup` subcommand's
+settings.json merge (backup, idempotency, foreign-statusLine preservation, invalid-JSON
+handling) and the `status` staleness nudge.
 
 Both run the real hooks as subprocesses and point `CLAUDE_CONFIG_DIR` at a temp directory,
 so they never touch your real config. Run them before publishing a change — the deny cases
@@ -214,6 +226,11 @@ are the security contract.
   command; an environment variable the guard cannot see makes the command deny rather than
   guess. Command substitution (`` $(...) ``) and `pushd`/`popd` are not tracked. Denying on
   the unknown is deliberate — the failure direction is friction, never a silent allow.
+- **`/probe setup` has no uninstall counterpart.** If the plugin is later removed with
+  `claude plugin uninstall`, the stable `probe-statusline.mjs` copy and the `statusLine`
+  entry in `settings.json` both survive as orphans — the indicator keeps rendering with no
+  guard hook actually installed to back its claims up. Remove `~/.claude/probe-state/` and
+  the `statusLine` entry by hand if you uninstall.
 
 ## Files
 
@@ -225,13 +242,14 @@ hooks/probe-guard.mjs            PreToolUse — the enforcement
 hooks/probe-promote.mjs          PostToolUse on ExitPlanMode — the only unlock
 hooks/probe-context.mjs          UserPromptSubmit — re-injects the contract
 hooks/probe-cleanup.mjs          SessionEnd — age-prunes only; never unlocks
-hooks/probe-ctl.mjs              start/status/implement/restore/stop + rounds & snapshots
+hooks/probe-ctl.mjs              start/status/implement/restore/stop/setup + rounds & snapshots
 hooks/probe-statusline.mjs       status line row (invisible when off)
 hooks/probe-lib.mjs              shared helpers
 skills/probe/SKILL.md            the /probe command and its contract
 LICENSE                          MIT
 test/guard.test.mjs              guard allow/deny matrix (node --test)
 test/rounds.test.mjs             rounds, snapshots, restore targeting
+test/setup.test.mjs              setup subcommand, settings.json merge, status nudge
 install.sh                       standalone installer / uninstaller
 ```
 
