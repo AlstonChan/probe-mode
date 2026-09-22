@@ -236,3 +236,110 @@ describe('status: statusline nudge', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('setup: refreshInterval', () => {
+  const lineOf = (cfg) => JSON.parse(fs.readFileSync(settingsPath(cfg), 'utf8')).statusLine;
+
+  test('default is at least 10 seconds', () => {
+    withIsolatedHooks(true, HOOK_FILES, (ctlPath) => {
+      const cfg = freshCfg();
+      ctlAt(ctlPath, cfg, 'setup');
+      // A 2s tick costs a four-process chain per tick per session on Windows
+      // (~524 process creations/minute across 5 sessions). Do not regress this.
+      assert.ok(lineOf(cfg).refreshInterval >= 10);
+      assert.equal(lineOf(cfg).refreshInterval, 10);
+      fs.rmSync(cfg, { recursive: true, force: true });
+    });
+  });
+
+  for (const args of [['--refresh=30'], ['--refresh', '30']]) {
+    test(`honors ${args.join(' ')}`, () => {
+      withIsolatedHooks(true, HOOK_FILES, (ctlPath) => {
+        const cfg = freshCfg();
+        ctlAt(ctlPath, cfg, 'setup', ...args);
+        assert.equal(lineOf(cfg).refreshInterval, 30);
+        fs.rmSync(cfg, { recursive: true, force: true });
+      });
+    });
+  }
+
+  const BAD = ['--refresh=0', '--refresh=abc', '--refresh=-5', '--refresh=1.5', '--refresh=9999', '--refresh'];
+  for (const bad of BAD) {
+    test(`rejects ${bad} without touching anything`, () => {
+      withIsolatedHooks(true, HOOK_FILES, (ctlPath) => {
+        const cfg = freshCfg();
+        // assert.throws() returns undefined, so capture the error by hand: we need
+        // its .status and .stdout, which execFileSync attaches on a non-zero exit.
+        let err = null;
+        try { ctlAt(ctlPath, cfg, 'setup', ...bad.split(' ')); } catch (e) { err = e; }
+        assert.ok(err, `setup ${bad} should have exited non-zero`);
+        assert.equal(err.status, 1);
+        assert.match(String(err.stdout), /--refresh must be|--refresh needs a value/);
+        // Validation happens BEFORE any filesystem side effect.
+        assert.equal(fs.existsSync(settingsPath(cfg)), false);
+        assert.equal(fs.existsSync(stableStatuslinePath(cfg)), false);
+        fs.rmSync(cfg, { recursive: true, force: true });
+      });
+    });
+  }
+
+  test('re-running setup keeps a customized interval instead of clobbering it', () => {
+    // status nudges you to re-run setup after every plugin update, so a re-run that
+    // reset a deliberate 45 back to the default would be user-hostile.
+    withIsolatedHooks(true, HOOK_FILES, (ctlPath) => {
+      const cfg = freshCfg();
+      ctlAt(ctlPath, cfg, 'setup', '--refresh=45');
+      const out = ctlAt(ctlPath, cfg, 'setup');
+      assert.equal(lineOf(cfg).refreshInterval, 45);
+      assert.match(out, /Kept your existing refresh interval of 45s/);
+      fs.rmSync(cfg, { recursive: true, force: true });
+    });
+  });
+
+  test('an explicit --refresh still overrides a customized interval', () => {
+    withIsolatedHooks(true, HOOK_FILES, (ctlPath) => {
+      const cfg = freshCfg();
+      ctlAt(ctlPath, cfg, 'setup', '--refresh=45');
+      ctlAt(ctlPath, cfg, 'setup', '--refresh=12');
+      assert.equal(lineOf(cfg).refreshInterval, 12);
+      fs.rmSync(cfg, { recursive: true, force: true });
+    });
+  });
+
+  test('a foreign statusLine is still never touched, --refresh or not', () => {
+    withIsolatedHooks(true, HOOK_FILES, (ctlPath) => {
+      const cfg = freshCfg();
+      fs.writeFileSync(settingsPath(cfg), JSON.stringify({
+        statusLine: { type: 'command', command: 'node my-own-statusline.js', refreshInterval: 3 },
+      }));
+      ctlAt(ctlPath, cfg, 'setup', '--refresh=60');
+      const sl = lineOf(cfg);
+      assert.match(sl.command, /my-own-statusline/);
+      assert.equal(sl.refreshInterval, 3);
+      fs.rmSync(cfg, { recursive: true, force: true });
+    });
+  });
+});
+
+describe('install.sh keeps the same interval contract', () => {
+  // Static assertions: they run everywhere, with no bash required, and they are the
+  // part that actually stops the default being regressed in the second installer.
+  const SH = fs.readFileSync(path.join(import.meta.dirname, '..', 'install.sh'), 'utf8');
+
+  test('declares a default of at least 10', () => {
+    const m = SH.match(/^REFRESH_DEFAULT=(\d+)$/m);
+    assert.ok(m, 'install.sh must declare REFRESH_DEFAULT');
+    assert.ok(Number(m[1]) >= 10, `REFRESH_DEFAULT is ${m[1]}; a 2s tick is what caused the spawn storm`);
+  });
+
+  test('does not hardcode refreshInterval in its inline node script', () => {
+    assert.doesNotMatch(SH, /refreshInterval:\s*\d/,
+      'the interval must be interpolated, never a literal, or the two installers drift');
+  });
+
+  test('accepts --refresh', () => {
+    assert.match(SH, /--refresh/);
+  });
+});

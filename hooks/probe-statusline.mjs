@@ -33,8 +33,53 @@ const C = {
   amber: '\x1b[33m', cyan: '\x1b[36m', green: '\x1b[32m', red: '\x1b[31m',
 };
 
-let input = {};
-try { input = JSON.parse(fs.readFileSync(0, 'utf8')); } catch { process.exit(0); }
+// Inlined rather than imported from probe-lib.mjs: `setup` relocates a COPY of this
+// single file to ~/.claude/probe-state/, where probe-lib.mjs does not exist. An
+// import here breaks every install that ran setup.
+//
+// fs.readFileSync(0) blocked the event loop, so no watchdog could interrupt it, and
+// a stdin pipe Claude Code wrote to but never closed pinned this process forever.
+// This hook leaked worst of the five simply because it respawns on a timer.
+//
+// Both budgets stay INSIDE one refresh interval on purpose. If a stuck instance
+// could outlive its own refresh, a successor would spawn on top of it and they would
+// compound — which is exactly the 10-process pile-up that was measured. Bounded this
+// way, at most one statusline process can exist at a time.
+const SOFT_MS = 1000;
+const HARD_MS = 1500;
+
+async function readPayload() {
+  const chunks = [];
+  let parsed = null;
+  let soft = null;
+  let hard = null;
+  try {
+    if (process.stdin.isTTY) return null; // hand-run in a terminal: no payload
+    soft = setTimeout(() => process.stdin.destroy(), SOFT_MS);
+    hard = setTimeout(() => process.exit(0), HARD_MS);
+    hard.unref();
+    try {
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk);
+        // Stop at the first complete object: Claude Code writes the payload and then
+        // holds the pipe open, so waiting for EOF would cost the full timeout on every
+        // single tick. A JSON prefix cannot parse, so breaking early is safe.
+        try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')); break; } catch {}
+      }
+    } catch { /* our own destroy() rejects the iterator; keep what arrived */ }
+  } catch {
+    return null; // fd 0 closed entirely (EBADF)
+  } finally {
+    clearTimeout(soft);
+    clearTimeout(hard);
+    try { process.stdin.destroy(); } catch {}
+  }
+  return parsed && typeof parsed === 'object' ? parsed : null;
+}
+
+const input = await readPayload();
+// No usable payload: print nothing at all, exactly as the old catch did.
+if (!input || !input.session_id) process.exit(0);
 
 const file = path.join(STATE_DIR, `${input.session_id}.json`);
 if (!fs.existsSync(file)) process.exit(0);

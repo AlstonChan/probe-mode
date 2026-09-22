@@ -2,7 +2,7 @@
 name: probe
 description: Auto-mode research that can never touch the project. Sources freely, writes benchmark/validation scripts only in a sandbox, proves the idea, and refuses to implement until you explicitly ask and approve a plan.
 disable-model-invocation: true
-argument-hint: [start|status|implement|restore|stop|setup] <question>
+argument-hint: [start|status|implement|restore|stop|setup] <question> [--refresh=N]
 allowed-tools: Bash(node *)
 ---
 
@@ -25,6 +25,10 @@ Run the control command for `$ARGUMENTS`, then follow the contract below.
   printed verbatim. Wires up the status-line indicator for a plugin install (plugins
   cannot ship a `statusLine` themselves); a no-op under a standalone install, which
   already has one. Safe to re-run any time, including after this plugin updates.
+  Takes `--refresh=N` to set the status-line tick in seconds (default 10, range
+  1-3600). Every tick spawns a process — four of them on Windows — so lower it only
+  if the user wants a snappier row, and raise it if they mind the churn. A re-run
+  preserves whatever interval they already chose unless `--refresh` is passed.
 
 The exact command name depends on how this was installed — plugin installs use
 `/probe-mode:probe`, standalone installs use plain `/probe`. Never hardcode `/probe`

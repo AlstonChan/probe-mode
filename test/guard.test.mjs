@@ -1,6 +1,6 @@
 // Regression suite for the probe-mode guard.
 //
-//   node --test test/
+//   node --test            (bare: Node auto-discovers test/*.test.mjs)
 //
 // Runs the real hook as a subprocess against synthetic PreToolUse payloads and
 // asserts allow/deny. Every case here is a rule someone could break by editing

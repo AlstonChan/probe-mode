@@ -11,6 +11,7 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
   CONFIG_DIR, STATE_DIR, readState, writeState, normalizeRounds, roundRef, undoRef, CMD,
+  parseRefreshFlag, DEFAULT_REFRESH_INTERVAL, MIN_REFRESH_INTERVAL, MAX_REFRESH_INTERVAL,
 } from './probe-lib.mjs';
 
 const PHASE_HINT = {
@@ -170,9 +171,19 @@ const statuslineStable = path.join(STATE_DIR, 'probe-statusline.mjs');
  * settings.json pointing there — mirroring install.sh's own backup/merge/foreign-check
  * logic, but writing only the statusLine key, never hooks.
  */
-function setupStatusline() {
+function setupStatusline(argv) {
+  // Validate BEFORE any filesystem side effect — this function otherwise mkdirs,
+  // copies the statusline and writes a settings backup before it could fail.
+  const flag = parseRefreshFlag(argv);
+  if (flag.error) {
+    console.log(`${flag.error}\nNothing was changed.`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (CMD === '/probe') {
-    console.log('Standalone install — install.sh already wired up the status line; nothing to do here.');
+    console.log('Standalone install — install.sh already wired up the status line; nothing to do here.'
+      + (flag.value ? `\nTo change the refresh interval, re-run: ./install.sh --refresh=${flag.value}` : ''));
     return;
   }
 
@@ -207,11 +218,27 @@ For the probe indicator, point statusLine at:
     return;
   }
 
-  settings.statusLine = { type: 'command', command, padding: 0, refreshInterval: 2 };
+  // An ours-but-customized interval is a different case from a foreign statusLine.
+  // setup is advertised as safe to re-run, and `status` actively nudges you to re-run
+  // it after every plugin update — so clobbering a deliberate 30 back to the default
+  // on every update would be user-hostile. An explicit --refresh always wins;
+  // otherwise an existing valid value is preserved and the new default only offered.
+  const prev = Number(settings.statusLine && settings.statusLine.refreshInterval);
+  const kept = Number.isInteger(prev)
+    && prev >= MIN_REFRESH_INTERVAL && prev <= MAX_REFRESH_INTERVAL
+    && prev !== DEFAULT_REFRESH_INTERVAL ? prev : null;
+  const refreshInterval = flag.value ?? kept ?? DEFAULT_REFRESH_INTERVAL;
+
+  settings.statusLine = { type: 'command', command, padding: 0, refreshInterval };
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   console.log(`Status line wired up.
 Copied the current probe-statusline.mjs to: ${statuslineStable}
 ${existed ? 'Backed up your previous settings.json first.' : 'Created settings.json.'}
+${flag.value
+    ? `Refresh interval: ${refreshInterval}s (from --refresh).`
+    : kept
+      ? `Kept your existing refresh interval of ${kept}s. The default is now ${DEFAULT_REFRESH_INTERVAL}s — pass --refresh=${DEFAULT_REFRESH_INTERVAL} to adopt it.`
+      : `Refresh interval: ${refreshInterval}s. Every tick spawns a process (four of them on Windows), so raise it with --refresh=N if you mind the churn, or lower it for a snappier row.`}
 Re-run this any time to refresh it — it always overwrites the copy above, so keep any
 local edits to it elsewhere. Restart Claude Code to see the indicator.`);
 }
@@ -289,7 +316,7 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   if (existing) { existing.phase = 'off'; writeState(sid, existing); }
   console.log(`Probe mode OFF. Snapshots kept; ${CMD} restore still works this session.`);
 } else if (cmd === 'setup') {
-  setupStatusline();
+  setupStatusline(argv);
 } else {
   if (!existing) { console.log(`Probe mode: OFF${statuslineNudge()}`); process.exit(0); }
   const rounds = normalizeRounds(existing);

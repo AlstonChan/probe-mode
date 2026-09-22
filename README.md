@@ -42,8 +42,15 @@ Two things that were verified rather than assumed:
 - **Resume stays locked.** Resuming preserves the session_id, so `SessionEnd` deliberately
   does not delete a locked state — otherwise a resumed session would come back unlocked.
   It also keeps `implementing` state, because that is what backs `/probe restore`.
-  The only automatic cleanup is a 30-day prune. Sandboxes are yours to delete; they get
-  large once a build runs in one.
+- **Pruning is phase-aware, and the already-unlocked states are the ones pruned early.**
+  A `probe` or `planning` state is kept 30 days: deleting one would make a resumed
+  session come back silently unlocked, which is a safety regression. An `implementing`
+  or `off` state is already unlocked, so deleting it costs only restore history — those
+  go after 7 days of not being used. An unreadable state file is never pruned at all,
+  because the guard denies on one. `UserPromptSubmit` heartbeats the state file, so
+  "7 days" means "not used in 7 days", not "approved 7 days ago". A sandbox is deleted
+  with its own state file rather than on its own mtime, and orphaned sandboxes go after
+  7 days.
 
 ## Install
 
@@ -79,7 +86,7 @@ install path (`claude plugin list` or check `~/.claude/plugins/installed_plugins
     "type": "command",
     "command": "node \"<plugin-dir>/hooks/probe-statusline.mjs\"",
     "padding": 0,
-    "refreshInterval": 2
+    "refreshInterval": 10
   }
 }
 ```
@@ -89,14 +96,24 @@ file, and no status-line trigger fires on that — the row only re-runs on a new
 message, a permission-mode change, session start, `/compact`, a vim toggle, or this
 timer. Approving a plan races the permission-mode refresh against the `PostToolUse` hook
 that writes `implementing`, so without the timer the row can sit on cyan "planning" after
-the plan was already approved. Two seconds makes it self-healing; raise it if you mind the
-process spawn.
+the plan was already approved. Ten seconds makes it self-healing without much churn.
+
+It is not free, which is why the default is no longer 2. Claude Code runs the
+statusLine command through bash, so on Windows every tick is a four-process chain —
+two `bash.exe`, a `conhost.exe` and a `node.exe`. At the old two-second default that
+measured about 524 process creations per minute across five open sessions, roughly
+31,400 an hour. Ten seconds costs a fifth of that, and bounds the worst case to a row
+that is at most ten seconds stale after an approval.
+
+Pick your own: `/probe-mode:probe setup --refresh=5` for a snappier row, or
+`./install.sh --refresh=60` if you want the churn gone. Re-running setup keeps
+whatever value you chose — only an explicit `--refresh` overwrites it.
 
 ### Option B — installer script
 
 ```bash
 git clone https://github.com/AlstonChan/probe-mode.git && cd probe-mode
-./install.sh
+./install.sh              # or: ./install.sh --refresh=30
 ```
 
 Installs into `~/.claude`, wires the status line, and keeps the skill as plain `/probe`.
@@ -114,7 +131,7 @@ Restart Claude Code after either option.
 | `/probe implement` | Move to plan mode (writes stay blocked until you approve) |
 | `/probe restore` | Preview the rollback, then apply it after you confirm (`--undo` reverses it) |
 | `/probe stop` | Disarm without restoring |
-| `/probe setup` | Wire up the status-line indicator on a plugin install (no-op on standalone) |
+| `/probe setup [--refresh=N]` | Wire up the status-line indicator on a plugin install (no-op on standalone). `--refresh` sets the status-line tick in seconds, default 10 |
 
 `/probe` is `disable-model-invocation: true` — Claude cannot arm or disarm it, only you can.
 
@@ -189,12 +206,19 @@ status line keeps saying so, because restore cannot save you there.
 ## Testing
 
 ```bash
-node --test test/guard.test.mjs test/rounds.test.mjs test/setup.test.mjs
+node --test
 ```
 
-120 assertions. `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
+178 assertions. (Run it as bare `node --test` from the repo root — Node's auto-discovery
+finds `test/*.test.mjs`. `node --test test/` does **not** work on Node 24: it treats the
+argument as a module entry point rather than a directory.) `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
 writes, config sealing, path traversal, the shell deny-list, shell parsing, fail-closed
 behavior, and that deny messages name the right command for the install layout.
+`hooks-stdin.test.mjs` is the leak regression: every hook must exit when Claude Code
+holds its stdin pipe open and never closes it. It is the one suite that cannot use
+`execFileSync({ input })` like the others, because that closes stdin — which is exactly
+why the hang survived the original 120 assertions. `cleanup.test.mjs` covers the
+phase-aware retention matrix, sandbox pairing, and the heartbeat.
 `rounds.test.mjs` drives the real `probe-ctl` against a throwaway git repo to cover round
 creation, snapshot durability under `git gc`, restore targeting, `--undo`, loading state
 files written before rounds existed, and that `/probe` vs `/probe-mode:probe` resolves
@@ -248,6 +272,8 @@ hooks/probe-lib.mjs              shared helpers
 skills/probe/SKILL.md            the /probe command and its contract
 LICENSE                          MIT
 test/guard.test.mjs              guard allow/deny matrix (node --test)
+test/hooks-stdin.test.mjs        every hook must exit on a never-closed stdin pipe
+test/cleanup.test.mjs            phase-aware pruning + the liveness heartbeat
 test/rounds.test.mjs             rounds, snapshots, restore targeting
 test/setup.test.mjs              setup subcommand, settings.json merge, status nudge
 install.sh                       standalone installer / uninstaller

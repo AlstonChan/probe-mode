@@ -4,7 +4,10 @@
 // thing that unlocks writes in probe mode.
 import { readStdin, readState, writeState, CMD } from './probe-lib.mjs';
 
-const input = readStdin();
+// A failed or timed-out read yields {}, so readState(undefined) is null and we exit
+// below without promoting. That is the safe direction: a broken promote leaves writes
+// BLOCKED, never accidentally unlocked.
+const input = await readStdin();
 const state = readState(input.session_id);
 if (!state || state.phase === 'implementing') process.exit(0);
 
