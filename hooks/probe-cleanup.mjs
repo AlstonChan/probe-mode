@@ -30,65 +30,11 @@
 // probe-statusline.mjs copy that `setup` writes into this same directory is a plain
 // file with another extension, and must survive any prune — deleting it silently
 // breaks the status indicator for every plugin install.
-import fs from 'node:fs';
-import path from 'node:path';
-import { readStdin, STATE_DIR } from './probe-lib.mjs';
-
-const DAY = 24 * 60 * 60 * 1000;
-const LOCKED_PRUNE_DAYS = 30;   // probe / planning — the safety arm, unchanged
-const UNLOCKED_PRUNE_DAYS = 7;  // implementing / off — restore history only
+//
+// The policy itself (retention windows, unreadable-never-pruned, orphan sweep)
+// lives in shared/state.mjs so the OpenCode host applies the exact same matrix.
+import { readStdin, prune } from './probe-lib.mjs';
 
 await readStdin(); // bounded drain; a pipe that never closes can no longer pin this process
 
-/** null means unreadable, which is never pruned at all. */
-const readPhase = (file) => {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return (parsed && parsed.phase) || 'unknown';
-  } catch {
-    return null;
-  }
-};
-
-const isUnlocked = (phase) => phase === 'implementing' || phase === 'off';
-const ageMs = (p) => { try { return Date.now() - fs.statSync(p).mtimeMs; } catch { return -1; } };
-
-try {
-  const entries = fs.readdirSync(STATE_DIR, { withFileTypes: true });
-  const hasState = new Set(
-    entries.filter((e) => !e.isDirectory() && e.name.endsWith('.json')).map((e) => e.name),
-  );
-  const pruned = new Set();
-
-  // --- pass 1: state files, phase-aware; the sandbox goes with its own state ----
-  for (const entry of entries) {
-    if (entry.isDirectory() || !entry.name.endsWith('.json')) continue;
-    const file = path.join(STATE_DIR, entry.name);
-    const phase = readPhase(file);
-    // Unreadable state is never pruned. probe-guard.mjs denies rather than passes on
-    // an unreadable state file, so the file is still actively protecting something;
-    // deleting it would silently turn that deny into a pass.
-    if (phase === null) continue;
-
-    const age = ageMs(file);
-    if (age < 0) continue;
-    if (age < (isUnlocked(phase) ? UNLOCKED_PRUNE_DAYS : LOCKED_PRUNE_DAYS) * DAY) continue;
-
-    const sid = entry.name.slice(0, -'.json'.length);
-    try { fs.unlinkSync(file); } catch { continue; }
-    try { fs.rmSync(path.join(STATE_DIR, sid), { recursive: true, force: true }); } catch {}
-    pruned.add(sid);
-  }
-
-  // --- pass 2: orphan sandboxes whose state file is already gone ---------------
-  for (const entry of entries) {
-    if (!entry.isDirectory() || pruned.has(entry.name)) continue;
-    if (hasState.has(`${entry.name}.json`)) continue; // still paired: pass 1 owns it
-    const dir = path.join(STATE_DIR, entry.name);
-    // Only sweep things that actually look like one of ours.
-    if (!fs.existsSync(path.join(dir, 'sandbox'))) continue;
-    const age = ageMs(dir);
-    if (age < 0 || age < UNLOCKED_PRUNE_DAYS * DAY) continue;
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
-  }
-} catch {}
+prune();

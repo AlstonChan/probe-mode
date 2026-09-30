@@ -7,12 +7,13 @@
 // point. Round 1 keeps the original flat ref name for backward compatibility.
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { execFileSync } from 'node:child_process';
 import {
-  CONFIG_DIR, STATE_DIR, readState, writeState, normalizeRounds, roundRef, undoRef, CMD,
+  CONFIG_DIR, STATE_DIR, readState, writeState, normalizeRounds, roundRef, CMD,
   parseRefreshFlag, DEFAULT_REFRESH_INTERVAL, MIN_REFRESH_INTERVAL, MAX_REFRESH_INTERVAL,
 } from './probe-lib.mjs';
+import {
+  snapshot as gitSnapshot, restore as gitRestore, refExists as gitRefExists, CLAUDE_WORDING,
+} from '../shared/git.mjs';
 
 const PHASE_HINT = {
   probe: `Investigating. Say \`${CMD} implement\` when you want a plan.`,
@@ -27,129 +28,21 @@ if (!sid) { console.error('CLAUDE_CODE_SESSION_ID not set; run this from inside 
 const cmd = process.argv[2] || 'status';
 const argv = process.argv.slice(3);
 const cwd = process.cwd();
-const git = (args, opts = {}) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
 
-const isRepo = () => { try { return git(['rev-parse', '--is-inside-work-tree']) === 'true'; } catch { return false; } };
-const refExists = (r) => { try { git(['rev-parse', '--verify', '--quiet', r]); return true; } catch { return false; } };
+const refExists = (ref) => gitRefExists(cwd, ref);
 
-/**
- * Commit the current working tree (including untracked files) without touching
- * the real index or worktree, and pin it to `ref` so gc cannot collect it.
- */
-function snapshot(ref) {
-  if (!isRepo()) return null;
-  const head = git(['rev-parse', 'HEAD']);
-  const branch = (() => { try { return git(['rev-parse', '--abbrev-ref', 'HEAD']); } catch { return 'HEAD'; } })();
-  const idx = path.join(os.tmpdir(), `probe-index-${sid}-${Date.now()}`);
-  try { fs.unlinkSync(idx); } catch {}
-  const env = { ...process.env, GIT_INDEX_FILE: idx };
-  git(['read-tree', 'HEAD'], { env });
-  git(['add', '-A'], { env });
-  const tree = git(['write-tree'], { env });
-  const commit = git(['commit-tree', tree, '-p', head, '-m', `probe snapshot ${sid} ${ref}`]);
-  git(['update-ref', ref, commit]); // pin against gc
-  try { fs.unlinkSync(idx); } catch {}
-  return { head, branch, ref: commit, at: new Date().toISOString() };
-}
+/** Snapshot the working tree (incl. untracked) onto `ref`; null outside a repo. */
+const snapshot = (ref) => gitSnapshot({ cwd, sessionId: sid, ref });
 
 const fmtRound = (r, mark) =>
   `  ${mark} round ${r.n}  ${r.at}  ${String(r.ref || '').slice(0, 12)}  (${roundRef(sid, r.n)})`;
 
-/** Resolve which snapshot a restore should target, from the CLI flags. */
-function resolveTarget(state) {
-  const rounds = normalizeRounds(state);
-  if (!rounds.length) return { error: 'No snapshot: this directory is not a git repository. Nothing to restore.' };
-
-  if (argv.includes('--undo')) {
-    const u = state.undo;
-    if (!u) return { error: 'No undo point: nothing has been restored in this session yet.' };
-    return { label: `the state just before the last restore (${u.at})`, snap: u, isUndo: true };
-  }
-  if (argv.includes('--all')) {
-    return { label: 'the very beginning (round 1)', snap: rounds[0], round: rounds[0].n };
-  }
-  const i = argv.indexOf('--round');
-  if (i !== -1) {
-    const n = Number(argv[i + 1]);
-    const r = rounds.find((x) => x.n === n);
-    if (!r) return { error: `No round ${argv[i + 1]}. Available: ${rounds.map((x) => x.n).join(', ')}` };
-    return { label: `the start of round ${n}`, snap: r, round: n };
-  }
-  const cur = rounds[rounds.length - 1];
-  return { label: `the start of the current round (${cur.n})`, snap: cur, round: cur.n };
-}
-
+/** Preview (or, with --force, apply) a restore. All git mechanics live in
+ *  shared/git.mjs; this stays Claude-specific only in its wording. */
 function restore(state, force) {
-  const target = resolveTarget(state);
-  if (target.error) return target.error;
-
-  const snap = target.snap;
-  const rounds = normalizeRounds(state);
-  const commits = (() => {
-    try { return git(['log', '--oneline', `${snap.head}..HEAD`]).split('\n').filter(Boolean); }
-    catch { return []; }
-  })();
-  const changed = (() => {
-    try { return git(['diff', '--stat', snap.ref]).split('\n').filter(Boolean); }
-    catch { return []; }
-  })();
-  const branch = (() => { try { return git(['rev-parse', '--abbrev-ref', 'HEAD']); } catch { return snap.branch; } })();
-
-  if (!force) {
-    const out = ['RESTORE PREVIEW — nothing has been changed yet.', ''];
-    out.push(`Target: ${target.label}`);
-    out.push(`  HEAD would go from ${branch} back to ${snap.head.slice(0, 12)} on ${snap.branch}`);
-    out.push('');
-    if (!target.isUndo && rounds.length > 1) {
-      out.push('Rounds in this session:');
-      rounds.forEach((r) => out.push(fmtRound(r, r.n === target.round ? '->' : '  ')));
-      out.push('  Use --round N for a specific round, or --all for the very beginning.');
-      out.push('');
-    }
-    if (commits.length) {
-      out.push(`${commits.length} commit(s) WOULD BE ROLLED BACK:`);
-      commits.forEach((c) => out.push(`  ${c}`));
-    } else {
-      out.push('No commits would be rolled back.');
-    }
-    out.push('');
-    if (changed.length) {
-      out.push('Working tree changes that would be undone:');
-      changed.slice(-12).forEach((c) => out.push(`  ${c}`));
-    } else {
-      out.push('Working tree already matches the target; nothing to undo.');
-    }
-    out.push('');
-    out.push('This restore is reversible: the current state is snapshotted first,');
-    out.push('and `probe-ctl.mjs restore --undo` puts it back. Changes are also stashed.');
-    out.push('Ask the user to confirm, then re-run the same command with --force');
-    return out.join('\n');
-  }
-
-  const lines = [];
-
-  // Snapshot where we are now, so the restore itself can be undone.
-  const undo = snapshot(undoRef(sid));
-  if (undo) {
-    state.undo = undo;
-    lines.push(`Undo point saved — reverse this with: probe-ctl.mjs restore --undo --force`);
-  }
-  if (git(['status', '--porcelain']).length > 0) {
-    git(['stash', 'push', '-u', '-m', `probe-discard ${new Date().toISOString()}`]);
-    lines.push('Current changes also stashed (git stash list).');
-  }
-
-  git(['reset', '--hard', snap.head]);           // branch tip back where it was
-  git(['read-tree', '-u', '--reset', snap.ref]); // worktree + index == snapshot
-  git(['reset', '--quiet']);                     // unstage, keep worktree
-
-  writeState(sid, state);
-  lines.push(`Restored to ${target.label}.`);
-  lines.push(`HEAD: ${snap.head.slice(0, 12)} on ${snap.branch}`);
-  if (commits.length) lines.push(`${commits.length} commit(s) rolled back — also in git reflog.`);
-  lines.push(`Sandbox kept at ${state.sandbox} — delete it yourself if you want it gone.`);
-  return lines.join('\n');
+  return gitRestore({
+    cwd, sessionId: sid, stateDir: STATE_DIR, state, argv, force, wording: CLAUDE_WORDING,
+  }).text;
 }
 
 const toForwardSlash = (p) => p.split(path.sep).join('/');

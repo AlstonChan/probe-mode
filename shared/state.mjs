@@ -1,0 +1,170 @@
+// Host-agnostic probe-mode state: phases, rounds, restore points, and the
+// phase-aware retention sweep.
+//
+// Both hosts read and write the same state-file shape:
+//
+//   {
+//     phase: 'probe' | 'planning' | 'implementing' | 'off',
+//     round: 3, rounds: [{ n, at, ref, head, branch }],
+//     snapshot: { ref, head, branch, at },   // round 1, kept for old state files
+//     sandbox: '/abs/path/to/sandbox',
+//     cwd, startedAt, approvedAt, undo: { ref, head, branch, at },
+//     host: 'claude' | 'opencode'           // which host armed this session
+//   }
+//
+// The file lives at <stateDir>/<sessionID>.json and the session's sandbox at
+// <stateDir>/<sessionID>/sandbox/. Sessions are per-host, so a directory is
+// never shared between Claude Code and OpenCode.
+//
+// Nothing in here talks to the filesystem beyond state files: the guard reads
+// state directly (it must stay self-contained), git lives in shared/git.mjs.
+import fs from 'node:fs';
+import path from 'node:path';
+
+export const PHASES = ['probe', 'planning', 'implementing', 'off'];
+
+/** Unlocked phases: deleting one of these early costs restore history only.
+ *  A locked state (`probe`/`planning`) must outlive its session, because a
+ *  resumed session that finds no state file comes back silently unlocked. */
+export const isUnlockedPhase = (phase) => phase === 'implementing' || phase === 'off';
+
+export function statePath(stateDir, sessionId) {
+  return path.join(stateDir, `${sessionId}.json`);
+}
+
+export function readState(stateDir, sessionId) {
+  try {
+    return JSON.parse(fs.readFileSync(statePath(stateDir, sessionId), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export function writeState(stateDir, sessionId, state) {
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(statePath(stateDir, sessionId), JSON.stringify(state, null, 2));
+}
+
+/**
+ * Liveness heartbeat: move the state file's mtime so "age" means "not used
+ * since", not "phase-changed since". utimes rather than a lastSeen field:
+ * rewriting the file on every prompt would race the write that records an
+ * approval. Deliberately a no-op for a missing or `off` state — a heartbeat
+ * must never resurrect a disarmed session.
+ */
+export function heartbeat(stateDir, sessionId) {
+  try {
+    const state = readState(stateDir, sessionId);
+    if (!state || state.phase === 'off') return false;
+    const now = new Date();
+    fs.utimesSync(statePath(stateDir, sessionId), now, now);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rounds list for a state, synthesizing one for state files written before
+ * rounds existed. Those have a bare `snapshot` and no `rounds`, and must keep
+ * working without a migration step.
+ */
+export function normalizeRounds(state) {
+  if (!state) return [];
+  if (Array.isArray(state.rounds) && state.rounds.length) return state.rounds;
+  if (!state.snapshot) return [];
+  return [{
+    n: 1,
+    at: state.snapshot.at || state.startedAt,
+    ref: state.snapshot.ref,
+    head: state.snapshot.head,
+    branch: state.snapshot.branch,
+  }];
+}
+
+/** The git ref a round's snapshot is pinned to. Round 1 keeps the original
+ *  flat name so sessions created before rounds existed still resolve. */
+export function roundRef(sessionId, n) {
+  return n === 1 ? `refs/probe/${sessionId}` : `refs/probe/${sessionId}-r${n}`;
+}
+
+export function undoRef(sessionId) {
+  return `refs/probe/${sessionId}-undo`;
+}
+
+// ---------------------------------------------------------------- retention
+//
+// Phase-aware on purpose, and counterintuitively the ALREADY-unlocked states
+// are the ones safe to prune early:
+//
+//   probe / planning     kept 30 days — deleting one would make a resumed
+//                        session come back silently UNLOCKED (the guard finds
+//                        no state file and passes everything)
+//   implementing / off   pruned after 7 idle days — already unlocked, so only
+//                        restore history is lost
+//
+// Ages come from mtime, which every host heartbeats on prompt/request, so
+// "age" means "not used since", not "phase-changed since". An unreadable state
+// is never pruned at all: a guard that denies on an unreadable file is still
+// protecting something, and deleting it turns that deny into a pass. A session
+// directory goes with its own state file rather than on its own mtime, and
+// orphaned sandboxes (no state file left) go after the unlocked window.
+export const DAY = 24 * 60 * 60 * 1000;
+export const LOCKED_PRUNE_DAYS = 30;
+export const UNLOCKED_PRUNE_DAYS = 7;
+
+/** null means unreadable, which is never pruned at all. */
+function readPhase(file) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return (parsed && parsed.phase) || 'unknown';
+  } catch {
+    return null;
+  }
+}
+
+const ageMs = (p) => { try { return Date.now() - fs.statSync(p).mtimeMs; } catch { return -1; } };
+
+/**
+ * Prune stale state files and their sandboxes from `stateDir`.
+ * Returns the session IDs it removed (for tests and logging).
+ * Any I/O failure stops the sweep without throwing: cleanup must never break
+ * the hook that called it.
+ */
+export function pruneStateDir(stateDir) {
+  const pruned = new Set();
+  try {
+    const entries = fs.readdirSync(stateDir, { withFileTypes: true });
+    const hasState = new Set(
+      entries.filter((e) => !e.isDirectory() && e.name.endsWith('.json')).map((e) => e.name),
+    );
+
+    // pass 1: state files, phase-aware; the sandbox goes with its own state
+    for (const entry of entries) {
+      if (entry.isDirectory() || !entry.name.endsWith('.json')) continue;
+      const file = path.join(stateDir, entry.name);
+      const phase = readPhase(file);
+      if (phase === null) continue; // unreadable: still guarding something
+      const age = ageMs(file);
+      if (age < 0) continue;
+      if (age < (isUnlockedPhase(phase) ? UNLOCKED_PRUNE_DAYS : LOCKED_PRUNE_DAYS) * DAY) continue;
+
+      const sid = entry.name.slice(0, -'.json'.length);
+      try { fs.unlinkSync(file); } catch { continue; }
+      try { fs.rmSync(path.join(stateDir, sid), { recursive: true, force: true }); } catch {}
+      pruned.add(sid);
+    }
+
+    // pass 2: orphan sandboxes whose state file is already gone
+    for (const entry of entries) {
+      if (!entry.isDirectory() || pruned.has(entry.name)) continue;
+      if (hasState.has(`${entry.name}.json`)) continue; // still paired: pass 1 owns it
+      const dir = path.join(stateDir, entry.name);
+      if (!fs.existsSync(path.join(dir, 'sandbox'))) continue; // only sweep ours
+      const age = ageMs(dir);
+      if (age < 0 || age < UNLOCKED_PRUNE_DAYS * DAY) continue;
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  } catch {}
+  return pruned;
+}

@@ -2,6 +2,7 @@
 # probe-mode standalone installer.
 #
 #   ./install.sh                 install into ~/.claude
+#   ./install.sh --opencode      also wire the OpenCode host
 #   ./install.sh --refresh=30    install, status line ticks every 30s
 #   ./install.sh --uninstall     remove it again
 #
@@ -10,20 +11,26 @@
 #
 # Everything it touches:
 #   ~/.claude/hooks/probe-*.mjs                        created / removed
+#   ~/.claude/shared/*.mjs                             created / removed
 #   ~/.claude/skills/probe/                            created / removed
 #   ~/.claude/settings.json                            hooks + statusLine merged
 #   ~/.claude/settings.json.probe-backup-<timestamp>   written before any edit
+#   ~/.config/opencode/plugins/probe/                  with --opencode
 #
 # It never overwrites unrelated settings, and it refuses to clobber a statusLine
-# you already have.
+# you already have. The OpenCode side is a two-line shim per entry point that
+# re-exports this checkout, so opencode.json(c) is never edited.
 
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 HOOKS_DIR="$CLAUDE_DIR/hooks"
+SHARED_DIR="$CLAUDE_DIR/shared"
 SKILL_DIR="$CLAUDE_DIR/skills/probe"
 SETTINGS="$CLAUDE_DIR/settings.json"
+OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+OPENCODE_SHIM="$OPENCODE_DIR/plugins/probe"
 
 GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'; DIM=$'\033[2m'; OFF=$'\033[0m'
 say()  { printf '%s\n' "$*"; }
@@ -40,9 +47,11 @@ command -v node >/dev/null 2>&1 || die "node not found on PATH. Install Node.js,
 REFRESH_DEFAULT=10
 REFRESH=""
 UNINSTALL=0
+OPENCODE=0
 
 usage() {
-  say "Usage: ./install.sh [--refresh=N] [--uninstall]"
+  say "Usage: ./install.sh [--opencode] [--refresh=N] [--uninstall]"
+  say "  --opencode    also wire the OpenCode host (writes a plugin shim, never edits opencode.json)"
   say "  --refresh=N   status-line refresh in seconds (default ${REFRESH_DEFAULT}, 1-3600)"
   say "  --uninstall   remove probe-mode again"
 }
@@ -50,6 +59,7 @@ usage() {
 while [ $# -gt 0 ]; do
   case "$1" in
     --uninstall)  UNINSTALL=1 ;;
+    --opencode)   OPENCODE=1 ;;
     --refresh=*)  REFRESH="${1#--refresh=}" ;;
     # The explicit arity check matters: a bare trailing --refresh would otherwise
     # shift an empty stack, which under `set -e` exits with no message at all.
@@ -107,17 +117,32 @@ if [ "$UNINSTALL" = "1" ]; then
     ' "$(topath "$SETTINGS")"
   fi
   rm -f "$HOOKS_DIR"/probe-*.mjs
+  rm -f "$SHARED_DIR"/state.mjs "$SHARED_DIR"/git.mjs "$SHARED_DIR"/contract.mjs \
+        "$SHARED_DIR"/rules.mjs "$SHARED_DIR"/shell.mjs
+  # Only removes it when empty: a pre-existing ~/.claude/shared of your own
+  # must survive an uninstall.
+  rmdir "$SHARED_DIR" 2>/dev/null || true
   rm -rf "$SKILL_DIR" "$CLAUDE_DIR/probe-state"
-  ok "Uninstalled. Restart Claude Code."
+  if [ -d "$OPENCODE_SHIM" ]; then
+    rm -rf "$OPENCODE_SHIM"
+    say "${DIM}  removed $OPENCODE_SHIM${OFF}"
+  fi
+  ok "Uninstalled. Restart Claude Code (and OpenCode, if you used --opencode)."
   exit 0
 fi
 
 # ------------------------------------------------------------------ install
 say "Installing probe-mode into $CLAUDE_DIR"
-mkdir -p "$HOOKS_DIR" "$SKILL_DIR"
+mkdir -p "$HOOKS_DIR" "$SHARED_DIR" "$SKILL_DIR"
 
 cp "$SRC"/hooks/probe-*.mjs "$HOOKS_DIR"/
 ok "hooks    -> $HOOKS_DIR/probe-*.mjs"
+
+# probe-ctl/probe-lib/probe-context import ../shared/*, which resolves to
+# ~/.claude/shared in this layout — the same relative path they use in the
+# checkout, so no per-install rewriting is needed.
+cp "$SRC"/shared/*.mjs "$SHARED_DIR"/
+ok "shared   -> $SHARED_DIR/*.mjs"
 
 # The shipped SKILL.md is written for plugin form. Rewrite the plugin-root
 # placeholder to the standalone location. Must be a native path: node given a
@@ -186,6 +211,28 @@ if [ "$NOTE" = "KEPT_EXISTING" ]; then
   warn "You already have a statusLine configured, so it was left untouched."
   warn "For the probe indicator, point statusLine at:"
   warn "  node \"$CLAUDE_DIR/hooks/probe-statusline.mjs\""
+fi
+
+if [ "$OPENCODE" = "1" ]; then
+  mkdir -p "$OPENCODE_SHIM"
+  # Two re-export shims (server entry + TUI entry) pointing back at this
+  # checkout, so OpenCode picks the plugin up from its global config directory
+  # and always runs the code you have on disk. opencode.json(c) is never
+  # touched, and an update is just a git pull.
+  node -e '
+    const fs = require("fs");
+    const path = require("path");
+    const { pathToFileURL } = require("url");
+    const [dir, src] = process.argv.slice(1);
+    const shim = (name) => {
+      const target = pathToFileURL(path.join(src, "opencode", name)).href;
+      fs.writeFileSync(path.join(dir, name === "index.mjs" ? "index.mjs" : "tui.tsx"),
+        `export { default } from ${JSON.stringify(target)};\n`);
+    };
+    shim("index.mjs");
+    shim("tui.tsx");
+  ' "$(topath "$OPENCODE_SHIM")" "$(topath "$SRC")"
+  ok "opencode -> $OPENCODE_SHIM (plugin shim)"
 fi
 
 say ""

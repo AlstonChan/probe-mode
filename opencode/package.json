@@ -1,0 +1,11 @@
+{
+  "name": "opencode-probe-mode",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Research-only mode for OpenCode: explores and benchmarks freely; nothing touches the project until you approve a plan.",
+  "exports": {
+    ".": "./index.mjs",
+    "./tui": "./tui.tsx"
+  }
+}

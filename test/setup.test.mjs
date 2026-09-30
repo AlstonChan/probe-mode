@@ -28,6 +28,10 @@ function withIsolatedHooks(pluginLike, files, fn) {
   for (const f of files) {
     fs.copyFileSync(path.join(import.meta.dirname, '..', 'hooks', f), path.join(hooksDir, f));
   }
+  // probe-ctl/probe-lib import ../shared/*, which resolves to <dir>/shared in the
+  // installed layout (install.sh copies it there too). Copy it so the isolated
+  // hooks resolve exactly as they do in a real install.
+  fs.cpSync(path.join(import.meta.dirname, '..', 'shared'), path.join(dir, 'shared'), { recursive: true });
   if (pluginLike) fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
   try {
     return fn(path.join(hooksDir, 'probe-ctl.mjs'));
