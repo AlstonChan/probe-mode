@@ -104,20 +104,36 @@ let input = null;
 const stateFile = path.join(STATE_DIR, `${input.session_id}.json`);
 if (!fs.existsSync(stateFile)) pass(); // probe mode not active -> hook is inert
 
+// A broken state file denies everything — except the two commands that resolve
+// it, or the deny message below would point at a way out it then blocks.
+// `status` only reads. `stop` needs the user's own stop command, recorded by the
+// UserPromptSubmit hook in a sidecar file because the state file is unusable.
+const brokenState = (why) => {
+  const cmd = String(input.tool_input?.command || '');
+  if (input.tool_name === 'Bash' || input.tool_name === 'PowerShell') {
+    if (/probe-ctl(?:\.mjs)?["']?\s+status\b/i.test(cmd) && !/[;&|<>`$]/.test(cmd)) pass();
+    if (/probe-ctl(?:\.mjs)?["']?\s+stop\b/i.test(cmd) && !/[;&|<>`$]/.test(cmd)) {
+      try {
+        const at = Number(fs.readFileSync(path.join(STATE_DIR, `${input.session_id}.stop-intent`), 'utf8'));
+        if (Number.isFinite(at) && Date.now() - at <= STOP_INTENT_MS) pass();
+      } catch {}
+    }
+  }
+  deny(`probe-mode state file is ${why}. Denying until the user runs ${CMD} status or ${CMD} stop to resolve it.`);
+};
+
 let state = null;
 try {
   state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
 } catch (err) {
   // The file exists but we cannot read it. That is a broken guard, not an absent
   // one, so deny rather than assume the session is unprotected.
-  deny(`probe-mode state file is unreadable (${err && err.message}). Denying until ${CMD} status or ${CMD} stop resolves it.`);
+  brokenState(`unreadable (${err && err.message})`);
 }
 
 // Valid JSON that is not a state object (`null`, a number, an array) is as broken
 // as unparseable JSON, and passing it would let one write disarm the guard.
-if (!state || typeof state !== 'object' || Array.isArray(state)) {
-  deny(`probe-mode state file is not a state object. Denying until ${CMD} status or ${CMD} stop resolves it.`);
-}
+if (!state || typeof state !== 'object' || Array.isArray(state)) brokenState('not a state object');
 
 try {
   if (state.phase === 'implementing' || state.phase === 'off') pass();

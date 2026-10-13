@@ -4,14 +4,25 @@
 // where the OpenCode host reads the same text. It also records the user's own
 // stop command, which the guard requires before the model may run it.
 import fs from 'node:fs';
-import { readStdin, readState, writeState, statePath, CMD } from './probe-lib.mjs';
+import path from 'node:path';
+import { readStdin, inspectState, writeState, statePath, STATE_DIR, CMD } from './probe-lib.mjs';
 import { contractText } from '../shared/contract.mjs';
 
 /** `/probe stop` (standalone) or `/probe-mode:probe stop` (plugin). */
 const STOP_PROMPT = /^\s*\/(?:probe-mode:)?probe\s+stop\b/i;
 
 const input = await readStdin();
-const state = readState(input.session_id);
+const inspected = inspectState(input.session_id);
+
+// An unusable state file has nowhere to hold the stop token, so it goes in a
+// sidecar the guard checks on that path (it is outside every writable root too).
+if (inspected.status === 'unreadable') {
+  if (STOP_PROMPT.test(String(input.prompt || ''))) {
+    try { fs.writeFileSync(path.join(STATE_DIR, `${input.session_id}.stop-intent`), String(Date.now())); } catch {}
+  }
+  process.exit(0);
+}
+const state = inspected.status === 'ok' ? inspected.state : null;
 if (!state || state.phase === 'off') process.exit(0);
 
 // The skill runs `probe-ctl stop` through the model's own Bash tool, so the guard

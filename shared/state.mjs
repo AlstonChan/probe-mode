@@ -33,16 +33,62 @@ export function statePath(stateDir, sessionId) {
 }
 
 export function readState(stateDir, sessionId) {
+  const s = inspectState(stateDir, sessionId);
+  return s.status === 'ok' ? s.state : null;
+}
+
+/**
+ * Like readState, but tells "no state" apart from "a state file we cannot use".
+ * The guard denies on the second, so a caller that treated it as "off" would
+ * report one thing while the guard enforced another.
+ * @returns {{status: 'absent'} | {status: 'unreadable', error: string} | {status: 'ok', state: object}}
+ */
+export function inspectState(stateDir, sessionId) {
+  let raw;
   try {
-    return JSON.parse(fs.readFileSync(statePath(stateDir, sessionId), 'utf8'));
-  } catch {
-    return null;
+    raw = fs.readFileSync(statePath(stateDir, sessionId), 'utf8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return { status: 'absent' };
+    return { status: 'unreadable', error: err && err.message };
+  }
+  try {
+    const state = JSON.parse(raw);
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      return { status: 'unreadable', error: 'not a state object' };
+    }
+    return { status: 'ok', state };
+  } catch (err) {
+    return { status: 'unreadable', error: err && err.message };
   }
 }
 
+/** Atomic: written to a temp file and renamed over the old one, so a reader
+ *  (the guard runs on every tool call) never sees a half-written state. */
 export function writeState(stateDir, sessionId, state) {
   fs.mkdirSync(stateDir, { recursive: true });
-  fs.writeFileSync(statePath(stateDir, sessionId), JSON.stringify(state, null, 2));
+  const target = statePath(stateDir, sessionId);
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+  try {
+    renameWithRetry(tmp, target);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch {}
+    throw err;
+  }
+}
+
+/** Windows refuses a rename over a file another process has open for a moment
+ *  (EPERM/EBUSY/EACCES); a few short retries ride that out. */
+function renameWithRetry(from, to) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (err) {
+      if (attempt >= 20 || !['EPERM', 'EBUSY', 'EACCES'].includes(err && err.code)) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 + attempt * 5);
+    }
+  }
 }
 
 /**

@@ -18,6 +18,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {
   statePath as sharedStatePath, readState as sharedReadState, writeState as sharedWriteState,
+  inspectState as sharedInspectState,
   normalizeRounds, roundRef, undoRef, pruneStateDir,
 } from '../shared/state.mjs';
 
@@ -38,6 +39,8 @@ export const CMD = isPlugin ? '/probe-mode:probe' : '/probe';
 export const statePath = (sessionId) => sharedStatePath(STATE_DIR, sessionId);
 
 export const readState = (sessionId) => sharedReadState(STATE_DIR, sessionId);
+
+export const inspectState = (sessionId) => sharedInspectState(STATE_DIR, sessionId);
 
 export const writeState = (sessionId, state) => sharedWriteState(STATE_DIR, sessionId, state);
 

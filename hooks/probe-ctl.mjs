@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  CONFIG_DIR, STATE_DIR, readState, writeState, normalizeRounds, roundRef, CMD,
+  CONFIG_DIR, STATE_DIR, inspectState, writeState, normalizeRounds, roundRef, CMD,
   parseRefreshFlag, DEFAULT_REFRESH_INTERVAL, MIN_REFRESH_INTERVAL, MAX_REFRESH_INTERVAL,
 } from './probe-lib.mjs';
 import {
@@ -160,7 +160,37 @@ function statuslineNudge() {
   return '';
 }
 
-const existing = readState(sid);
+const inspected = inspectState(sid);
+const existing = inspected.status === 'ok' ? inspected.state : null;
+const stopIntentFile = path.join(STATE_DIR, `${sid}.stop-intent`);
+
+/** The first round number at or after `n` whose ref is free, so a snapshot can
+ *  never overwrite an existing restore point (e.g. after a lost state file). */
+const freeRound = (n) => {
+  let k = Math.max(1, n);
+  while (refExists(roundRef(sid, k))) k++;
+  return k;
+};
+
+// The guard denies everything while the state file is unusable, so ctl must say
+// so instead of reporting "off", and `stop` is the way out.
+if (inspected.status === 'unreadable' && cmd !== 'setup') {
+  if (cmd === 'stop') {
+    writeState(sid, {
+      phase: 'off', cwd, startedAt: new Date().toISOString(), rounds: [], snapshot: null,
+      recovered: `state file was unreadable (${inspected.error})`,
+    });
+    try { fs.unlinkSync(stopIntentFile); } catch {}
+    console.log(`Probe mode OFF. The state file was unreadable (${inspected.error}) and has been reset.
+Earlier snapshots are still in git as refs/probe/${sid}* — inspect them with:
+  git for-each-ref refs/probe/${sid}*`);
+  } else {
+    console.log(`Probe mode: STATE FILE UNREADABLE (${inspected.error})
+Writes stay blocked while it is. The user can run ${CMD} stop to reset it; earlier
+snapshots stay in git as refs/probe/${sid}*.`);
+  }
+  process.exit(0);
+}
 
 if (cmd === 'start') {
   const sandbox = path.join(STATE_DIR, sid, 'sandbox');
@@ -168,14 +198,15 @@ if (cmd === 'start') {
 
   if (!existing) {
     // Arm even if the snapshot failed: writes must be blocked either way.
-    const { snap, error } = snapshot(roundRef(sid, 1));
+    const n = freeRound(1);
+    const { snap, error } = snapshot(roundRef(sid, n));
     writeState(sid, {
       phase: 'probe', sandbox, cwd, startedAt: new Date().toISOString(),
-      snapshot: snap, round: 1, ...(error ? { snapshotError: error } : {}),
-      rounds: snap ? [{ n: 1, at: snap.at, ref: snap.ref, head: snap.head, branch: snap.branch }] : [],
+      snapshot: n === 1 ? snap : null, round: n, ...(error ? { snapshotError: error } : {}),
+      rounds: snap ? [{ n, at: snap.at, ref: snap.ref, head: snap.head, branch: snap.branch }] : [],
     });
     const snapLine = snap ? `${snap.ref.slice(0, 12)} (restorable via ${CMD} restore)` : noSnapshot(error);
-    console.log(`PROBE MODE ON (round 1, phase: probe)
+    console.log(`PROBE MODE ON (round ${n}, phase: probe)
 Sandbox (only writable path): ${sandbox}
 Project: ${cwd}
 Snapshot: ${snapLine}
@@ -184,7 +215,8 @@ Writes outside the sandbox are denied by hook until a plan is approved.`);
   } else {
     // Already armed: begin a NEW round. Earlier snapshots are never overwritten.
     const rounds = normalizeRounds(existing);
-    const n = Math.max(rounds[rounds.length - 1]?.n || 0, existing.round || 0) + 1; // a round without a snapshot still counts
+    // A round without a snapshot still counts, and an existing ref is never reused.
+    const n = freeRound(Math.max(rounds[rounds.length - 1]?.n || 0, existing.round || 0) + 1);
     const { snap, error } = snapshot(roundRef(sid, n));
     const was = existing.phase;
     existing.phase = 'probe';
@@ -212,6 +244,7 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   console.log(restore(existing, argv.includes('--force')));
 } else if (cmd === 'stop') {
   if (existing) { existing.phase = 'off'; delete existing.stopIntent; writeState(sid, existing); }
+  try { fs.unlinkSync(stopIntentFile); } catch {}
   console.log(`Probe mode OFF. Snapshots kept; ${CMD} restore still works this session.`);
 } else if (cmd === 'setup') {
   setupStatusline(argv);
