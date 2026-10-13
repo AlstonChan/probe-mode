@@ -201,3 +201,38 @@ describe('liveness heartbeat', () => {
     assert.equal(fs.statSync(file).mtimeMs, before, 'heartbeat must sit after the phase check');
   });
 });
+
+describe('snapshot refs go with their state', () => {
+  const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const refsIn = (repo) => git(repo, ['for-each-ref', '--format=%(refname)', 'refs/probe/']).split('\n').filter(Boolean).sort();
+
+  test('pruning a state deletes its refs and nobody else\'s', () => {
+    const cfg = freshCfg();
+    const repo = path.join(cfg, 'repo');
+    fs.mkdirSync(repo);
+    git(repo, ['init', '-q']);
+    git(repo, ['config', 'user.email', 't@t']);
+    git(repo, ['config', 'user.name', 't']);
+    git(repo, ['commit', '-q', '--allow-empty', '-m', 'base']);
+    for (const r of ['old', 'old-r2', 'old-undo', 'old-other', 'live']) git(repo, ['update-ref', `refs/probe/${r}`, 'HEAD']);
+
+    const old = fabricate(cfg, 'old', { phase: 'off', ageDays: 30 });
+    fs.writeFileSync(old, JSON.stringify({ phase: 'off', cwd: repo }));
+    backdate(old, 30);
+    const live = fabricate(cfg, 'live', { phase: 'off', ageDays: 0 });
+    fs.writeFileSync(live, JSON.stringify({ phase: 'off', cwd: repo }));
+
+    runCleanup(cfg);
+    assert.equal(survives(cfg, 'old'), false);
+    assert.deepEqual(refsIn(repo), ['refs/probe/live', 'refs/probe/old-other']);
+  });
+
+  test('a state whose repo is gone is still pruned', () => {
+    const cfg = freshCfg();
+    const file = fabricate(cfg, 'gone', { phase: 'off', ageDays: 30 });
+    fs.writeFileSync(file, JSON.stringify({ phase: 'off', cwd: path.join(cfg, 'no-such-repo') }));
+    backdate(file, 30);
+    runCleanup(cfg);
+    assert.equal(survives(cfg, 'gone'), false);
+  });
+});

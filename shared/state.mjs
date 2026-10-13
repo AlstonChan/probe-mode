@@ -20,6 +20,7 @@
 // state directly (it must stay self-contained), git lives in shared/git.mjs.
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 export const PHASES = ['probe', 'planning', 'implementing', 'off'];
 
@@ -171,6 +172,31 @@ function readPhase(file) {
 
 const ageMs = (p) => { try { return Date.now() - fs.statSync(p).mtimeMs; } catch { return -1; } };
 
+function readField(file, key) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return parsed && typeof parsed[key] === 'string' ? parsed[key] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Delete refs/probe/<sid>, <sid>-rN and <sid>-undo in `repo`. Best-effort:
+ *  a moved or deleted repo just leaves nothing to clean. Never touches another
+ *  session's refs, even one whose id starts with this one. */
+export function deleteSessionRefs(repo, sid) {
+  const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000 });
+  try {
+    if (!fs.existsSync(repo)) return [];
+    const mine = new RegExp(`^refs/probe/${sid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-r\\d+|-undo)?$`);
+    const refs = git(['for-each-ref', '--format=%(refname)', 'refs/probe/']).split('\n').filter((r) => mine.test(r));
+    for (const r of refs) { try { git(['update-ref', '-d', r]); } catch {} }
+    return refs;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Prune stale state files and their sandboxes from `stateDir`.
  * Returns the session IDs it removed (for tests and logging).
@@ -196,8 +222,14 @@ export function pruneStateDir(stateDir) {
       if (age < (isUnlockedPhase(phase) ? UNLOCKED_PRUNE_DAYS : LOCKED_PRUNE_DAYS) * DAY) continue;
 
       const sid = entry.name.slice(0, -'.json'.length);
+      const repo = readField(file, 'cwd');
       try { fs.unlinkSync(file); } catch { continue; }
       try { fs.rmSync(path.join(stateDir, sid), { recursive: true, force: true }); } catch {}
+      try { fs.unlinkSync(path.join(stateDir, `${sid}.stop-intent`)); } catch {}
+      // The snapshot refs go with the state that pointed at them. Left behind,
+      // they keep every untracked file a snapshot captured alive in the repo
+      // forever (gc cannot collect them, and `push --mirror` would publish them).
+      if (repo) deleteSessionRefs(repo, sid);
       pruned.add(sid);
     }
 
