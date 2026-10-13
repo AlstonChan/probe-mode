@@ -108,8 +108,14 @@ try {
   deny(`probe-mode state file is unreadable (${err && err.message}). Denying until ${CMD} status or ${CMD} stop resolves it.`);
 }
 
+// Valid JSON that is not a state object (`null`, a number, an array) is as broken
+// as unparseable JSON, and passing it would let one write disarm the guard.
+if (!state || typeof state !== 'object' || Array.isArray(state)) {
+  deny(`probe-mode state file is not a state object. Denying until ${CMD} status or ${CMD} stop resolves it.`);
+}
+
 try {
-  if (!state || state.phase === 'implementing' || state.phase === 'off') pass();
+  if (state.phase === 'implementing' || state.phase === 'off') pass();
 
   const phase = state.phase; // 'probe' | 'planning'
   const tool = input.tool_name;
@@ -117,9 +123,9 @@ try {
 
   const norm = (p) => path.resolve(p).split(BACKSLASH).join('/').toLowerCase();
 
+  // Never STATE_DIR itself: it holds this session's state file, and a model that
+  // could rewrite or delete that file could switch the guard off.
   const roots = [
-    path.join(STATE_DIR, input.session_id || 'none'),
-    STATE_DIR,
     input.scratchpad_dir,
     state.sandbox,
     input.cwd ? path.join(input.cwd, '.probe-sandbox') : null,

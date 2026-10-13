@@ -358,6 +358,27 @@ describe('fails closed', () => {
     fs.writeFileSync(path.join(CFG, 'probe-state', `${SID}.json`), 'not json {{{');
     assert.equal(write(path.join(PROJECT, 'src/main.py')), 'deny');
   });
+
+  for (const body of ['null', '42', '[]', '"probe"']) {
+    test(`denies when the state file is valid JSON but not an object (${body})`, () => {
+      fs.writeFileSync(path.join(CFG, 'probe-state', `${SID}.json`), body);
+      assert.equal(sh(`rm ${PROJECT}/README.md`), 'deny');
+    });
+  }
+});
+
+describe('the state file is not writable from inside probe mode', () => {
+  // Rewriting or deleting it would disarm the guard.
+  before(() => setPhase('probe'));
+  const stateFile = () => path.join(CFG, 'probe-state', `${SID}.json`);
+
+  test('Write to the state file is denied', () => assert.equal(write(stateFile()), 'deny'));
+  test('rm of the state file is denied', () => assert.equal(sh(`rm ${stateFile()}`), 'deny'));
+  test('a sibling dir of the sandbox under probe-state is not writable', () => {
+    fs.mkdirSync(`${SANDBOX}-evil`, { recursive: true });
+    assert.equal(sh(`echo hi > ${SANDBOX}-evil/x`), 'deny');
+  });
+  test('the sandbox itself stays writable', () => assert.equal(write(path.join(SANDBOX, 'a.txt')), 'allow'));
 });
 
 describe('deny messages name the right command for the install layout', () => {
