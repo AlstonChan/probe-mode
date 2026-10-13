@@ -33,7 +33,7 @@ import {
   readState, writeState, statePath, normalizeRounds, roundRef, pruneStateDir,
 } from '../shared/state.mjs';
 import { trySnapshot, restore, refExists } from '../shared/git.mjs';
-import { sessionRules, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
+import { sessionRules, matchEffect, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
 import { analyzeSegments, prepare } from '../shared/shell.mjs';
 import { contractText } from '../shared/contract.mjs';
 import {
@@ -136,11 +136,14 @@ export default {
       if (owner !== sessionID) await applyRules(sessionID, phase, state);
     };
 
-    /** The one and only unlock: approved plan -> free execution. */
+    /** The one and only unlock: approved plan -> free execution. A dialog or
+     *  question answer only counts while a plan is actually awaiting approval;
+     *  the user's own `approve` command is accepted from research too. */
     const unlock = async (sessionID, source) => {
       const owner = await ownerOf(sessionID);
       const state = stateOf(owner);
       if (!state || state.phase === 'off') return false;
+      if (source !== 'command' && state.phase !== 'planning' && state.phase !== 'implementing') return false;
       if (state.phase !== 'implementing') {
         state.phase = 'implementing';
         state.approvedAt = new Date().toISOString();
@@ -325,11 +328,28 @@ export default {
       const state = armed.state;
       if (state.phase === 'off' || state.phase === 'implementing') return;
 
-      // The approval moment. An `edit` that resolved to `ask` while planning is
-      // a write outside the sandbox (in-sandbox writes are allowed by the
-      // rules), so the dialog the user is looking at IS the plan approval.
-      if (event.action === 'edit' && event.effect === 'ask') {
-        event.message = approvalAskMessage({ sandbox: state.sandbox, cmd: CMD });
+      // Edits are judged against the OWNER's current phase, not whatever rules
+      // this session happens to carry: a child created while unlocked keeps its
+      // empty rule set into the next round, and a user's own `edit: ask` config
+      // would otherwise turn a research-phase write into an approval dialog.
+      if (event.action === 'edit') {
+        const rules = sessionRules({
+          phase: state.phase, sandbox: state.sandbox, plansDir, stateDir, locationDir, extraRoots,
+        });
+        const effects = (event.resources ?? []).map((r) => matchEffect(rules, 'edit', String(r)));
+        if (effects.includes('deny')) {
+          event.effect = 'deny';
+          return;
+        }
+        // The approval moment. An `edit` that resolves to `ask` while planning
+        // is a write outside the sandbox, so the dialog the user is looking at
+        // IS the plan approval. Only the planning phase has one.
+        if (effects.includes('ask')) {
+          event.effect = 'ask';
+          event.message = approvalAskMessage({ sandbox: state.sandbox, cmd: CMD });
+          return;
+        }
+        if (effects.length > 0 && event.effect !== 'deny') event.effect = 'allow';
         return;
       }
 
@@ -395,10 +415,15 @@ export default {
         const questions = Array.isArray(payload.questions) ? payload.questions : [];
         const index = questions.findIndex((q) => /probe plan approval/i.test(String(q?.header ?? '')));
         if (index === -1) return;
-        const output = event.result?.output ?? event.result?.metadata ?? {};
+        // The answers arrive structured either in `output` or, when `output` is
+        // the human-readable summary string, in `metadata`.
+        const out = event.result?.output;
+        const output = (out && typeof out === 'object') ? out : (event.result?.metadata ?? {});
         const answers = Array.isArray(output.answers) ? output.answers : [];
         const answer = String((answers[index] ?? [])[0] ?? '');
-        if (/^approve/i.test(answer)) await unlock(event.sessionID, 'question');
+        // Exact label: the model writes the options, so a prefix match would let
+        // "Approve later — keep researching" unlock.
+        if (answer.trim().toLowerCase() === 'approve') await unlock(event.sessionID, 'question');
       }
     });
 
@@ -415,6 +440,9 @@ export default {
           if (event.type === 'permission.asked') {
             const data = event.data;
             if (data.action !== 'edit') continue;
+            // Only a dialog raised while a plan awaits approval is an approval.
+            const armed = await armedFor(data.sessionID);
+            if (armed?.state.phase !== 'planning') continue;
             approvalDialogs.set(data.id, data.sessionID);
             // Unbounded growth would need a clock we do not have here; a lost
             // entry only means the user runs `/probe approve` instead — the
