@@ -175,18 +175,27 @@ normal agent switcher (`Shift+Tab`) alongside Build and Plan.
 
 ## Commands
 
-The same subcommands exist on both hosts (`/probe-mode:probe …` on a Claude plugin
-install; plain `/probe` otherwise).
+`/probe-mode:probe …` on a Claude plugin install; plain `/probe` otherwise. Both hosts
+have the same subcommands except the two marked.
 
 | | |
 |---|---|
 | `/probe <question>` | Arm the mode, or open a new research round if already armed |
-| `/probe status` | Phase, round, sandbox, every round’s restore point |
-| `/probe implement` | Move to plan mode (writes stay blocked until you approve) |
-| `/probe approve` | OpenCode: unlock without writing anything — the permission dialog and the plan question do the same thing |
+| `/probe status` | Phase, round, sandbox, every round’s restore point, recent denials |
+| `/probe implement` | Move to plan mode (writes stay blocked until you approve). Refuses when probe mode is off or writes are already unlocked, instead of re-locking them |
+| `/probe approve` | **OpenCode only**: unlock without writing anything — the permission dialog and the plan question do the same thing |
 | `/probe restore` | Preview the rollback, then apply it after you confirm (`--undo` reverses it) |
-| `/probe stop` | Disarm without restoring |
-| `/probe setup [--refresh=N]` | Claude plugin installs only: wire up the status-line indicator (no-op on standalone). `--refresh` sets the tick in seconds, default 10 |
+| `/probe diff [--round N] [--patch]` | What changed since a round’s snapshot, untracked files included. Read-only |
+| `/probe check <command>` | Dry-run the guard: would this command be allowed right now, and why (`--shell=powershell` on Claude for a PowerShell command) |
+| `/probe rounds [prune]` | List every round’s restore point; `prune` previews deleting all but the current one, `--force` applies it |
+| `/probe export` | Write the round’s findings to one markdown file outside the project (see below) |
+| `/probe stop` | Disarm without restoring. Only you can: the model running it on its own is denied |
+| `/probe setup [--refresh=N]` | **Claude plugin installs only**: wire up the status-line indicator (no-op on standalone). `--refresh` sets the tick in seconds, default 10 |
+
+`export` writes `~/.claude/probe-exports/<session>-r<N>.md` on Claude Code and
+`~/.probe-mode/exports/` on OpenCode: the rounds, the sandbox listing, `findings.md` from
+the sandbox if the model kept one, the changes since the round started, and the
+denials. The sandbox itself is pruned after 7 days unused; the export is not.
 
 `/probe` is `disable-model-invocation: true` in Claude Code — Claude cannot arm or
 disarm it, only you can. OpenCode has no model-facing command tool, so the same holds
@@ -201,7 +210,35 @@ fine, writing to it is not.
 
 **Denied:** `Edit`/`Write` outside the sandbox, `git commit`, `npm install`, `rm`,
 `sed -i`, redirects and `tee` into the project, formatters, codemods, `kubectl apply`,
-PowerShell `Set-Content`.
+PowerShell `Set-Content` and `del`.
+
+The shell analysis reads a command the way a shell would: quotes, heredocs, `$(…)`,
+`bash -c`, `cd` between commands, git's global options, PowerShell aliases. It judges
+each command by its command word, so `grep "rm"` or `cat src/cp.js` are reads, and a
+write is judged by where it really lands, through symlinks and junctions. Writes to
+`/dev/null`, `NUL` and `$null` are fine. When it cannot tell where a write lands, it
+denies. `/probe check '<command>'` shows the verdict and the reason.
+
+Every denial is logged to `<session>.denials.jsonl` next to the session's state, where
+the model cannot write. `status` shows the latest ones.
+
+### Your own allow and deny patterns
+
+For the commands the analysis gets wrong in your codebase, list wildcard patterns (`*`
+spans anything, `?` is one character, whole command line, case-insensitive):
+
+```json
+{ "allow": ["make lint-fix"], "deny": ["./scripts/seed*"] }
+```
+
+- **User file:** `~/.claude/probe.json` on Claude Code, `~/.probe-mode/probe.json` on
+  OpenCode. It may allow and deny.
+- **Project file:** `.probe.json` at the project root. It may only **deny**: it travels
+  with the repository, so an allow there would let anything you clone loosen the lock.
+- **Precedence:** a deny always wins.
+- **Allow patterns only cover one plain command.** `make *` allows `make lint`, never
+  `make x && rm -rf src`, a redirect, or a command substitution.
+- **Patterns that are nothing but wildcards are ignored.**
 
 The sandbox is `~/.claude/probe-state/<session-id>/sandbox/` on Claude Code and
 `~/.probe-mode/<session-id>/sandbox/` on OpenCode (override the OpenCode root with
@@ -272,9 +309,10 @@ status line keeps saying so, because restore cannot save you there.
 node --test
 ```
 
-262 assertions across eight suites. (Run it as bare `node --test` from the repo root — Node's auto-discovery
-finds `test/*.test.mjs`. `node --test test/` does **not** work on Node 24: it treats the
-argument as a module entry point rather than a directory.) `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
+477 tests across 24 files. (Run it as bare `node --test` from the repo root, or
+`node --test test/*.test.mjs` — Node's auto-discovery finds `test/*.test.mjs`.
+`node --test test/` does **not** work on Node 24: it treats the argument as a module
+entry point rather than a directory.) `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
 writes, config sealing, path traversal, the shell deny-list, shell parsing, fail-closed
 behavior, and that deny messages name the right command for the install layout.
 `hooks-stdin.test.mjs` is the leak regression: every hook must exit when Claude Code
@@ -302,6 +340,20 @@ Three suites cover the shared core and the OpenCode host:
   in the lines naming their mechanism.
 - `opencode.test.mjs` covers command parsing, status/prompt text, the phase → rules
   lifecycle, the blocked-call message rewrite, and the retention sweep.
+  `opencode-approval.test.mjs` drives the real plugin with a stub host: only an explicit
+  approval of a plan unlocks, and a child session can never carry stale rules into a
+  new round.
+
+The rest, one per behaviour:
+- `shell.test.mjs`: every bypass and false denial an adversarial review found.
+- `promote.test.mjs`, `stop-intent.test.mjs`: the only unlock, and the user-only stop.
+- `restore.test.mjs`, `unborn.test.mjs`: restore acts on the right repo and branch,
+  including repos with no commits yet.
+- `state.test.mjs`: atomic writes and recovery from a corrupted state file.
+- `statusline.test.mjs`, `denials.test.mjs`, `policy.test.mjs`: the status line,
+  the denial log, and the allow/deny patterns.
+- `check`, `diff`, `rounds-prune`, `export`, `implement`: one suite per subcommand.
+- `install.test.mjs`: runs the real `install.sh`.
 
 Everything Claude-side runs as a subprocess with `CLAUDE_CONFIG_DIR` pointed at a temp
 directory, so nothing touches your real config. Run them before publishing a change — the
@@ -318,16 +370,20 @@ deny cases are the security contract.
   so `probe` shows up in `/agents` and cycles with `Shift+Tab` like Build and Plan.
 - **Configuring any `statusLine` suppresses some footer hints** (`esc to interrupt`,
   `? for shortcuts`). That's Claude Code behavior for any status line, not this one.
-- `cp project/file sandbox/` is denied even though the source is only read. Use
-  Read-then-Write, or loosen the rule in `hooks/probe-guard.mjs`.
 - **The shell rules are a deny-list, so they are fail-open for anything unlisted.** They
-  cover package managers, migrations, deploys, publishing and downloads, but a build tool
-  nobody thought of will pass. Treat the git snapshot, not the deny-list, as the real
-  guarantee.
-- **Shell parsing is good, not complete.** `$VAR` expands only when assigned in the same
-  command; an environment variable the guard cannot see makes the command deny rather than
-  guess. Command substitution (`` $(...) ``) and `pushd`/`popd` are not tracked. Denying on
-  the unknown is deliberate — the failure direction is friction, never a silent allow.
+  cover file verbs, git, package managers, formatters, migrations, deploys, publishing
+  and downloads, but a build tool nobody thought of will pass, and an interpreter running
+  inline code (`python -c "open('f','w')…"`, `node -e …`) is not read at all. Add a deny
+  pattern for anything that matters in your codebase. Treat the git snapshot, not the
+  deny-list, as the real guarantee.
+- **Shell parsing is good, not complete.** `$VAR` expands only when assigned earlier in
+  the same command (or for a few safe environment variables like `HOME`); anything else
+  makes a write deny rather than guess. `cd -`, `pushd`/`popd` and input from `xargs`
+  make later writes unknowable, so they deny too. The failure direction is friction,
+  never a silent allow.
+- **Your user `probe.json` can loosen the lock, and during `implementing` the model can
+  write to it.** It can equally rewrite the hooks themselves in that phase, since
+  everything is unlocked then. A project `.probe.json` can never loosen it.
 - **`/probe setup` has no uninstall counterpart.** If the plugin is later removed with
   `claude plugin uninstall`, the stable `probe-statusline.mjs` copy and the `statusLine`
   entry in `settings.json` both survive as orphans — the indicator keeps rendering with no
@@ -339,9 +395,8 @@ deny cases are the security contract.
   them — arming, the hard `deny`, `approve`, both restore steps, a second round, and
   `stop`.
 - **On OpenCode the wildcard shell fallback misses `echo x>file`** (no space around the
-  `>` — whole-value wildcards cannot match it). The permission hook's path analysis still
-  denies it, so this only matters if the hook is not running; Claude's regex catches it
-  either way.
+  `>` — whole-value wildcards cannot match it). The permission hook's analysis still
+  denies it, so this only matters if the hook is not running.
 - **`opencode --auto` approves the planning dialog for you.** It auto-approves `ask`
   decisions, which is exactly what the approval moment is; configured `deny`s are still
   enforced, so the `probe`-phase block holds.
@@ -362,15 +417,16 @@ hooks/probe-guard.mjs            PreToolUse — the enforcement
 hooks/probe-promote.mjs          PostToolUse on ExitPlanMode — the only unlock
 hooks/probe-context.mjs          UserPromptSubmit — re-injects the contract
 hooks/probe-cleanup.mjs          SessionEnd — age-prunes only; never unlocks
-hooks/probe-ctl.mjs              start/status/implement/restore/stop/setup + rounds & snapshots
+hooks/probe-ctl.mjs              every subcommand; rounds & snapshots
 hooks/probe-statusline.mjs       status line row (invisible when off)
 hooks/probe-lib.mjs              shared helpers (Claude wiring: config dir, command name, stdin)
 skills/probe/SKILL.md            the /probe command and its contract (Claude Code)
-shared/state.mjs                 state shape, rounds/refs, heartbeat, phase-aware retention
-shared/git.mjs                   snapshot / restore preview / restore apply (both hosts)
+shared/state.mjs                 state shape, atomic writes, rounds/refs, heartbeat, retention, denial log
+shared/git.mjs                   snapshot, restore preview/apply, diff, rounds (both hosts)
 shared/contract.mjs              the research contract, incl. the host-specific mechanism lines
 shared/rules.mjs                 OpenCode session rules, shell fallback patterns, messages
-shared/shell.mjs                 shell path analysis — the guard's shell branch, ported
+shared/shell.mjs                 shell analysis, check, allow/deny patterns (both hosts)
+shared/export.mjs                the export subcommand
 opencode/index.mjs               OpenCode server plugin: agent, commands, hooks, approval
 opencode/lib.mjs                 command parsing, status text, prompts (pure, unit-tested)
 opencode/tui.tsx                 OpenCode footer status row (invisible when off)
@@ -384,23 +440,31 @@ test/setup.test.mjs              setup subcommand, settings.json merge, status n
 test/rules.test.mjs              cross-host parity: real guard vs shared analysis, rule shapes
 test/contract.test.mjs           Claude hook output == shared contract (host lines only)
 test/opencode.test.mjs           parsing, prompts, lifecycle, message rewrite, retention
+test/*.test.mjs                  one suite per behaviour (see Testing)
 install.sh                       standalone installer / uninstaller (--opencode for OpenCode)
 ```
 
-`hooks/probe-lib.mjs` is shared by everything except `probe-guard.mjs`, which is
-deliberately self-contained: an import that failed to parse would let writes through. It
-keeps its own copy of the path rules, and `test/rules.test.mjs` is what stops the two
-copies drifting — it fails if the guard and `shared/shell.mjs` ever disagree about a
-command.
+`hooks/probe-lib.mjs` is shared by everything except `probe-guard.mjs`, which has no
+static imports: one that failed to load would crash it before its fail-closed handlers
+exist, and Claude Code runs the tool when a PreToolUse hook exits non-zero. It loads
+`shared/shell.mjs` with a dynamic import inside a `try`, so a broken module denies.
+Both hosts run that one analysis, and `test/rules.test.mjs` still checks the real guard
+and the module reach the same verdict.
 
 ## Uninstall
 
 ```bash
-./install.sh --uninstall          # installer version (also removes the OpenCode shims)
-/plugin uninstall probe-mode      # plugin version
+./install.sh --uninstall                  # installer version (also removes the OpenCode shims)
+./install.sh --uninstall --purge          # ...and delete probe-state/ (sessions, sandboxes)
+./install.sh --uninstall --opencode-only  # remove only the OpenCode shims
+/plugin uninstall probe-mode              # plugin version
 ```
 
-The installer removes only its own entries and backs up `settings.json` first. For a
+The installer removes only its own hook entries — matched by the exact script they
+run, so a hook of yours that merely has "probe" in its name is left alone — and backs
+up `settings.json` first (the newest five backups are kept). It keeps
+`~/.claude/probe-state/` unless you pass `--purge`: a plugin install shares that
+directory, and deleting a locked session's state would silently unlock it. For a
 hand-configured OpenCode install, delete the `plugins` entry from `opencode.json(c)` or
 the copied `plugins/probe/` directory.
 
