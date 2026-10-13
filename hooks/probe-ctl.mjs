@@ -211,7 +211,7 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   if (!existing) { console.log('Probe mode is not active for this session; no snapshot to restore.'); process.exit(0); }
   console.log(restore(existing, argv.includes('--force')));
 } else if (cmd === 'stop') {
-  if (existing) { existing.phase = 'off'; writeState(sid, existing); }
+  if (existing) { existing.phase = 'off'; delete existing.stopIntent; writeState(sid, existing); }
   console.log(`Probe mode OFF. Snapshots kept; ${CMD} restore still works this session.`);
 } else if (cmd === 'setup') {
   setupStatusline(argv);

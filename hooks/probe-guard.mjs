@@ -16,6 +16,8 @@ const STATE_DIR = path.join(CONFIG_DIR, 'probe-state');
 // step at the exact moment it is supposed to work. A plan file is notes,
 // never a project change, so it stays writable in every phase.
 const PLANS_DIR = path.join(CONFIG_DIR, 'plans');
+// How long the user's own stop command stays valid for the model to carry out.
+const STOP_INTENT_MS = 2 * 60 * 1000;
 
 // Same detection as probe-lib.mjs, duplicated on purpose (see the NOTE in that file:
 // this guard never imports anything, so it can fail closed even if the shared lib breaks).
@@ -164,6 +166,19 @@ try {
   if (tool !== 'Bash' && tool !== 'PowerShell') pass();
 
   const rawCmd = String(ti.command || '');
+
+  // Disarming. The skill runs `probe-ctl stop` through this very tool, so only a
+  // fresh token left by the UserPromptSubmit hook — proof the USER typed the stop
+  // command — lets it through. The model cannot mint one: the state file is
+  // outside every writable root.
+  if (/probe-ctl(?:\.mjs)?["']?\s+stop\b/i.test(rawCmd)) {
+    const fresh = Number.isFinite(state.stopIntent) && Date.now() - state.stopIntent <= STOP_INTENT_MS;
+    if (fresh) pass();
+    deny(
+      `Blocked by ${phaseWord}: only the user can switch probe mode off.\n` +
+      `If they want to, they type ${CMD} stop themselves.\n${hint}`
+    );
+  }
 
   // --- shell-aware preprocessing -------------------------------------------
   // The old version scanned the whole command as one flat string, which made a

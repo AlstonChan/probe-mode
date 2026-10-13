@@ -1,14 +1,27 @@
 #!/usr/bin/env node
 // UserPromptSubmit: re-injects the probe-mode contract every turn so it survives
 // compaction and cannot drift. The wording itself lives in shared/contract.mjs,
-// where the OpenCode host reads the same text.
+// where the OpenCode host reads the same text. It also records the user's own
+// stop command, which the guard requires before the model may run it.
 import fs from 'node:fs';
-import { readStdin, readState, statePath, CMD } from './probe-lib.mjs';
+import { readStdin, readState, writeState, statePath, CMD } from './probe-lib.mjs';
 import { contractText } from '../shared/contract.mjs';
+
+/** `/probe stop` (standalone) or `/probe-mode:probe stop` (plugin). */
+const STOP_PROMPT = /^\s*\/(?:probe-mode:)?probe\s+stop\b/i;
 
 const input = await readStdin();
 const state = readState(input.session_id);
 if (!state || state.phase === 'off') process.exit(0);
+
+// The skill runs `probe-ctl stop` through the model's own Bash tool, so the guard
+// cannot tell the user's /probe stop from the model deciding to disarm itself.
+// This hook sees what the USER typed (the raw slash command, verified), so it
+// leaves a one-shot token the guard requires before letting that call through.
+if (STOP_PROMPT.test(String(input.prompt || ''))) {
+  state.stopIntent = Date.now();
+  writeState(input.session_id, state);
+}
 
 // Liveness heartbeat. probe-cleanup.mjs prunes by mtime, and nothing else ever
 // touches a state file after its last phase change — so without this, an
