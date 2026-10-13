@@ -36,6 +36,7 @@ import { trySnapshot, diffSince, listRounds, pruneRounds, restore, refExists } f
 import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
 import { analyzeSegments, checkReport, loadPolicy, matchPolicy } from '../shared/shell.mjs';
 import { contractText } from '../shared/contract.mjs';
+import { exportRound } from '../shared/export.mjs';
 import {
   CMD, parseInvocation, statusText, armPrompt, implementPrompt, approvePrompt,
   restoreRelay, stopPrompt, RESTORE_WORDING, PRUNE_WORDING, sandboxFor, deniedMessageFor,
@@ -238,6 +239,12 @@ export default {
         return say(await arm(sessionID, question));
       }
 
+      if (sub === 'export') {
+        if (!state) return say('Probe mode is not active for this session; nothing to export.');
+        const file = exportRound({ cwd: locationDir, sessionId: owner, stateDir, state, outDir: path.join(stateDir, 'exports') }); // never swept: no sandbox/ inside
+        return say(`Report this to the user as-is: Exported to ${file}`);
+      }
+
       if (sub === 'rounds') {
         if (!state) return say('Probe mode is not active for this session.');
         const text = args[0] === 'prune'
@@ -313,7 +320,7 @@ export default {
       editor.add({
         name: 'probe',
         description:
-          'research-only mode: [question | status | implement | approve | restore [--force] | stop | check <cmd> | diff [--round N] [--patch] | rounds [prune [--force]]]',
+          'research-only mode: [question | status | implement | approve | restore [--force] | stop | check <cmd> | diff [--round N] [--patch] | rounds [prune [--force]] | export]',
         execute: runCommand,
       });
     });

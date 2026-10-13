@@ -2,7 +2,7 @@
 name: probe
 description: Auto-mode research that can never touch the project. Sources freely, writes benchmark/validation scripts only in a sandbox, proves the idea, and refuses to implement until you explicitly ask and approve a plan.
 disable-model-invocation: true
-argument-hint: [start|status|implement|restore|stop|setup|check|diff|rounds] <question> [--refresh=N]
+argument-hint: [start|status|implement|restore|stop|setup|check|diff|rounds|export] <question> [--refresh=N]
 allowed-tools: Bash(node *)
 ---
 
@@ -41,6 +41,11 @@ Run the control command for `$ARGUMENTS`, then follow the contract below.
   `rounds prune` previews deleting every round's restore point except the current one;
   like restore, show the preview and only re-run with `--force` after the user confirms
   in a later turn. Never pass `--force` on your own initiative.
+- `export` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" export` and relay the path it
+  printed. Writes one markdown file outside the project with the rounds, the sandbox
+  listing, `findings.md` from the sandbox if there is one, changes since the round
+  started, and the denials. Keep your findings in `findings.md` in the sandbox during a
+  round so the export carries them.
 
 The exact command name depends on how this was installed — plugin installs use
 `/probe-mode:probe`, standalone installs use plain `/probe`. Never hardcode `/probe`

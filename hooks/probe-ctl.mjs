@@ -15,6 +15,7 @@ import {
   trySnapshot, diffSince, listRounds, pruneRounds, restore as gitRestore, refExists as gitRefExists, CLAUDE_WORDING,
 } from '../shared/git.mjs';
 import { checkReport, loadPolicy } from '../shared/shell.mjs';
+import { exportRound } from '../shared/export.mjs';
 
 const PHASE_HINT = {
   probe: `Investigating. Say \`${CMD} implement\` when you want a plan.`,
@@ -248,6 +249,10 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   if (existing) { existing.phase = 'off'; delete existing.stopIntent; writeState(sid, existing); }
   try { fs.unlinkSync(stopIntentFile); } catch {}
   console.log(`Probe mode OFF. Snapshots kept; ${CMD} restore still works this session.`);
+} else if (cmd === 'export') {
+  if (!existing) { console.log('Probe mode is not active for this session; nothing to export.'); process.exit(0); }
+  const file = exportRound({ cwd, sessionId: sid, stateDir: STATE_DIR, state: existing, outDir: path.join(CONFIG_DIR, 'probe-exports') });
+  console.log(`Exported to ${file}`);
 } else if (cmd === 'rounds') {
   if (!existing) { console.log('Probe mode is not active for this session.'); process.exit(0); }
   console.log(argv[0] === 'prune'

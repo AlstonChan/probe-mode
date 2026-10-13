@@ -62,6 +62,7 @@ describe('install.sh', { skip: !hasBash && 'bash not available' }, () => {
     assert.deepEqual(commands(s).sort(), ['node ~/tools/cpu-probe-report.js', '~/bin/my-probe-logger.sh']);
     assert.equal(s.statusLine, undefined);
     assert.ok(fs.existsSync(path.join(cfg, 'probe-state', 'live.json')), 'a locked session stays locked');
+    assert.equal(fs.existsSync(path.join(cfg, 'shared')), false, 'every shared module is removed');
 
     run(cfg, '--uninstall', '--purge');
     assert.equal(fs.existsSync(path.join(cfg, 'probe-state')), false);

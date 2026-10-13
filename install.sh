@@ -165,7 +165,7 @@ if [ "$UNINSTALL" = "1" ]; then
   fi
   rm -f "$HOOKS_DIR"/probe-*.mjs
   rm -f "$SHARED_DIR"/state.mjs "$SHARED_DIR"/git.mjs "$SHARED_DIR"/contract.mjs \
-        "$SHARED_DIR"/rules.mjs "$SHARED_DIR"/shell.mjs
+        "$SHARED_DIR"/rules.mjs "$SHARED_DIR"/shell.mjs "$SHARED_DIR"/export.mjs
   # Only removes it when empty: a pre-existing ~/.claude/shared of your own
   # must survive an uninstall.
   rmdir "$SHARED_DIR" 2>/dev/null || true
