@@ -14,7 +14,7 @@ import {
 import {
   trySnapshot, diffSince, listRounds, pruneRounds, restore as gitRestore, refExists as gitRefExists, CLAUDE_WORDING,
 } from '../shared/git.mjs';
-import { checkReport } from '../shared/shell.mjs';
+import { checkReport, loadPolicy } from '../shared/shell.mjs';
 
 const PHASE_HINT = {
   probe: `Investigating. Say \`${CMD} implement\` when you want a plan.`,
@@ -262,7 +262,8 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   const command = argv.filter((a) => a !== shellFlag).join(' ');
   const roots = existing ? [existing.sandbox, path.join(existing.cwd || cwd, '.probe-sandbox')] : [];
   if (!existing) console.log('Probe mode is not active, so nothing is blocked. As if it were:');
-  console.log(checkReport(command, { cwd, roots, shell, phase: existing ? existing.phase : 'probe' }));
+  const policy = loadPolicy({ userFile: path.join(CONFIG_DIR, 'probe.json'), projectDir: existing?.cwd || cwd });
+  console.log(checkReport(command, { cwd, roots, shell, phase: existing ? existing.phase : 'probe', policy }));
 } else if (cmd === 'setup') {
   setupStatusline(argv);
 } else {

@@ -234,6 +234,7 @@ try {
   const verdict = shell.analyzeCommand(rawCmd, {
     cwd: input.cwd || process.cwd(),
     roots,
+    policy: shell.loadPolicy({ userFile: path.join(CONFIG_DIR, 'probe.json'), projectDir: state.cwd || input.cwd }),
     shell: tool === 'PowerShell' ? 'powershell' : 'bash',
   });
   if (!verdict) pass();

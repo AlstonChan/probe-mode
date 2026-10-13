@@ -1220,9 +1220,83 @@ export function analyzeShell(rawCommand, { cwd, roots, shell = 'bash' }) {
 /** The guard's shell verdict in one call: `null` means pass, a result means deny. */
 export function analyzeCommand(rawCommand, options) {
   const result = analyzeShell(rawCommand, options);
+  const rule = matchPolicy(rawCommand, options.policy);
+  // A deny pattern always wins; an allow pattern overrides the analysis.
+  if (rule && rule.effect === 'deny') {
+    return { ...result, sawMutation: true, unresolved: [...result.unresolved, `matches deny pattern "${rule.pattern}" (${rule.source})`] };
+  }
+  if (rule && rule.effect === 'allow') return null;
   if (!result.sawMutation) return null;
   if (result.offenders.length === 0 && result.unresolved.length === 0) return null;
   return result;
+}
+
+// ================================================================== policy
+//
+// Per-user and per-project command patterns, for the cases the analysis gets
+// wrong in a particular codebase. A pattern is a wildcard over the whole command
+// line: `*` spans anything, `?` is one character, case-insensitive.
+//
+//   user file    { "allow": ["make lint-fix"], "deny": ["./scripts/seed*"] }
+//   project file { "deny": ["npm run migrate*"] }
+//
+// A project file may only DENY: it travels with the repository, so an allow there
+// would let anything you clone loosen the lock. An allow that is nothing but
+// wildcards is ignored for the same reason.
+
+const wildcard = (pattern) => new RegExp(
+  `^${String(pattern).trim().replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`,
+  'is',
+);
+
+/**
+ * Load the user's and the project's patterns. Never throws: an unreadable file
+ * contributes nothing and is named in `errors`.
+ * @returns {{allow: {pattern, source}[], deny: {pattern, source}[], errors: string[]}}
+ */
+export function loadPolicy({ userFile, projectDir }) {
+  const policy = { allow: [], deny: [], errors: [] };
+  const read = (file) => {
+    try {
+      if (!file || !fs.existsSync(file)) return null;
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (err) {
+      policy.errors.push(`${file}: ${err && err.message}`);
+      return null;
+    }
+  };
+  const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()) : []);
+
+  const user = read(userFile);
+  if (user) {
+    for (const p of strings(user.allow)) {
+      if (/^[\s*?]*$/.test(p)) { policy.errors.push(`${userFile}: ignored allow "${p}" (matches everything)`); continue; }
+      policy.allow.push({ pattern: p, source: userFile });
+    }
+    for (const p of strings(user.deny)) policy.deny.push({ pattern: p, source: userFile });
+  }
+  const projectFile = projectDir ? path.join(projectDir, '.probe.json') : null;
+  const project = read(projectFile);
+  if (project) {
+    if (strings(project.allow).length) policy.errors.push(`${projectFile}: "allow" is ignored in a project file (only "deny" is honoured)`);
+    for (const p of strings(project.deny)) policy.deny.push({ pattern: p, source: projectFile });
+  }
+  return policy;
+}
+
+/** The first matching rule, deny before allow; null when nothing matches. */
+export function matchPolicy(rawCommand, policy) {
+  if (!policy) return null;
+  const cmd = String(rawCommand ?? '').trim();
+  for (const r of policy.deny || []) if (wildcard(r.pattern).test(cmd)) return { effect: 'deny', ...r };
+  // An allow only covers one simple command: `make *` must not also wave through
+  // `make x && rm -rf .`, and nothing hidden in a substitution or redirect.
+  const items = lex(cmd, 'bash');
+  const single = items.every((it) => it.t === 'word' && it.parts.every((p) => p.sub === undefined));
+  if (!single) return null;
+  for (const r of policy.allow || []) if (wildcard(r.pattern).test(cmd)) return { effect: 'allow', ...r };
+  return null;
 }
 
 /**
@@ -1245,12 +1319,18 @@ export function describeCommand(rawCommand, shell = 'bash') {
  * The `check` subcommand: would probe mode let this command run right now, and
  * why. Same analysis the guard runs, so the answer is the guard's answer.
  */
-export function checkReport(rawCommand, { cwd, roots, shell = 'bash', phase = 'probe' }) {
+export function checkReport(rawCommand, { cwd, roots, shell = 'bash', phase = 'probe', policy = null }) {
   if (!String(rawCommand || '').trim()) return 'Usage: check "<command>" [--shell=powershell]';
   const r = analyzeShell(rawCommand, { cwd, roots, shell });
   const lines = [`Command: ${rawCommand}`, `Shell:   ${shell}`];
+  for (const e of policy?.errors || []) lines.push(`Note: ${e}`);
   if (phase === 'implementing' || phase === 'off') {
     lines.push(`Verdict: ALLOW — writes are not blocked in the ${phase} phase.`);
+    return lines.join('\n');
+  }
+  const rule = matchPolicy(rawCommand, policy);
+  if (rule) {
+    lines.push(`Verdict: ${rule.effect.toUpperCase()} — matches ${rule.effect} pattern "${rule.pattern}" in ${rule.source}`);
     return lines.join('\n');
   }
   if (!r.sawMutation) {

@@ -34,7 +34,7 @@ import {
 } from '../shared/state.mjs';
 import { trySnapshot, diffSince, listRounds, pruneRounds, restore, refExists } from '../shared/git.mjs';
 import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
-import { analyzeSegments, checkReport } from '../shared/shell.mjs';
+import { analyzeSegments, checkReport, loadPolicy, matchPolicy } from '../shared/shell.mjs';
 import { contractText } from '../shared/contract.mjs';
 import {
   CMD, parseInvocation, statusText, armPrompt, implementPrompt, approvePrompt,
@@ -52,6 +52,8 @@ const PLANS_DIR = path.join(HOME, '.opencode', 'plan');
 /** Claude also treats this as a writable root; kept for parity so artifacts can
  *  live next to the code instead of under $HOME. */
 const inProjectSandbox = (locationDir) => path.join(locationDir, '.probe-sandbox');
+/** The user's own allow/deny command patterns (shared/shell.mjs explains the format). */
+const USER_POLICY = path.join(HOME, '.probe-mode', 'probe.json');
 /** What to tell the model when a round has no restore point. */
 const noSnapshot = (error) => error
   ? `NONE — snapshot failed (${error}), so ${CMD} restore cannot roll this round back`
@@ -255,6 +257,7 @@ export default {
           cwd: locationDir,
           roots: state ? rootsFor(state) : [],
           phase: state ? state.phase : 'probe',
+          policy: loadPolicy({ userFile: USER_POLICY, projectDir: locationDir }),
         });
         const note = state ? '' : 'Probe mode is not active, so nothing is blocked. As if it were:\n';
         return say(`Report this to the user as-is:\n\n${note}${text}`);
@@ -385,6 +388,15 @@ export default {
       //                                   own ask/allow still applies
       if (event.action === 'shell') {
         if (event.effect === 'deny') return;
+        const policy = loadPolicy({ userFile: USER_POLICY, projectDir: locationDir });
+        const rule = matchPolicy(event.resources.join(' && '), policy);
+        if (rule && rule.effect === 'allow') { event.effect = 'allow'; return; }
+        if (rule && rule.effect === 'deny') {
+          event.effect = 'deny';
+          event.message = shellDenyMessage({ phase: state.phase, command: event.resources.join(' && '), sandbox: state.sandbox, cmd: CMD });
+          logDenial(stateDir, armed.owner, { tool: 'shell', what: event.resources.join(' && ').slice(0, 500), reason: `deny pattern "${rule.pattern}"` });
+          return;
+        }
         const verdict = analyzeSegments(event.resources, {
           cwd: locationDir,
           roots: rootsFor(state),
