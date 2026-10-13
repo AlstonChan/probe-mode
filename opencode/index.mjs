@@ -32,7 +32,7 @@ import os from 'node:os';
 import {
   readState, writeState, statePath, normalizeRounds, roundRef, pruneStateDir,
 } from '../shared/state.mjs';
-import { trySnapshot, restore, refExists } from '../shared/git.mjs';
+import { trySnapshot, diffSince, restore, refExists } from '../shared/git.mjs';
 import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
 import { analyzeSegments, checkReport } from '../shared/shell.mjs';
 import { contractText } from '../shared/contract.mjs';
@@ -236,6 +236,12 @@ export default {
         return say(await arm(sessionID, question));
       }
 
+      if (sub === 'diff') {
+        if (!state) return say('Probe mode is not active for this session; no snapshot to compare against.');
+        const text = diffSince({ cwd: locationDir, sessionId: owner, state, argv: args });
+        return say(`Report this to the user as-is:${String.fromCharCode(10).repeat(2)}${text}`);
+      }
+
       if (sub === 'check') {
         const text = checkReport(rest || '', {
           cwd: locationDir,
@@ -298,7 +304,7 @@ export default {
       editor.add({
         name: 'probe',
         description:
-          'research-only mode: [question | status | implement | approve | restore [--force] | stop | check <cmd>]',
+          'research-only mode: [question | status | implement | approve | restore [--force] | stop | check <cmd> | diff [--round N] [--patch]]',
         execute: runCommand,
       });
     });

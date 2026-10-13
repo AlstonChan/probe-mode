@@ -10,7 +10,7 @@ export const CMD = '/probe';
 /** Subcommands the user can type. Anything else is treated as a research
  *  question, so `/probe does batching help?` arms the mode with that question —
  *  exactly how Claude Code's `/probe <question>` behaves. */
-export const SUBCOMMANDS = ['start', 'status', 'implement', 'approve', 'restore', 'stop', 'check'];
+export const SUBCOMMANDS = ['start', 'status', 'implement', 'approve', 'restore', 'stop', 'check', 'diff'];
 
 export function parseInvocation(text) {
   const raw = String(text ?? '').trim();

@@ -302,3 +302,30 @@ export function restore({ cwd, sessionId, stateDir, state, argv, force, wording 
   lines.push(`Sandbox kept at ${state.sandbox} — delete it yourself if you want it gone.`);
   return { text: lines.join('\n'), changed: true };
 }
+
+/**
+ * What changed since a round's snapshot: committed and uncommitted work, with
+ * untracked files included. Read-only — the comparison tree is built through a
+ * throwaway index. Same targeting flags as restore (--round N, --all, --undo).
+ */
+export function diffSince({ cwd, sessionId, state, argv }) {
+  const target = resolveTarget({ state, argv });
+  if (target.error) return target.error;
+  const repo = state.cwd || cwd;
+  if (!fs.existsSync(repo) || !isRepo(repo)) return `The project this session was armed in (${repo}) is gone or no longer a git repository.`;
+  const top = git(repo, ['rev-parse', '--show-toplevel']);
+  try { git(top, ['cat-file', '-e', `${target.snap.ref}^{commit}`]); }
+  catch { return `Snapshot ${String(target.snap.ref).slice(0, 12)} is not in the repository at ${top}.`; }
+
+  const now = worktreeTree(top, sessionId, headOf(top));
+  const mode = argv.includes('--patch') ? ['--patch', '--stat'] : ['--stat'];
+  const out = git(top, ['diff', ...mode, '--no-color', target.snap.ref, now]);
+  const commits = target.snap.head
+    ? (() => { try { return git(top, ['log', '--oneline', `${target.snap.head}..HEAD`]); } catch { return ''; } })()
+    : (() => { try { return git(top, ['log', '--oneline', 'HEAD']); } catch { return ''; } })();
+  const lines = [`Changes since ${target.label} (${String(target.snap.ref).slice(0, 12)}), untracked files included:`, ''];
+  lines.push(out || 'No changes.');
+  if (commits) lines.push('', 'Commits since then:', ...commits.split('\n').map((c) => `  ${c}`));
+  if (!argv.includes('--patch') && out) lines.push('', 'Add --patch for the full diff.');
+  return lines.join('\n');
+}
