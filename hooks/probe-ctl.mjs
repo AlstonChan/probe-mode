@@ -12,7 +12,7 @@ import {
   parseRefreshFlag, DEFAULT_REFRESH_INTERVAL, MIN_REFRESH_INTERVAL, MAX_REFRESH_INTERVAL,
 } from './probe-lib.mjs';
 import {
-  snapshot as gitSnapshot, restore as gitRestore, refExists as gitRefExists, CLAUDE_WORDING,
+  trySnapshot, restore as gitRestore, refExists as gitRefExists, CLAUDE_WORDING,
 } from '../shared/git.mjs';
 
 const PHASE_HINT = {
@@ -31,8 +31,14 @@ const cwd = process.cwd();
 
 const refExists = (ref) => gitRefExists(cwd, ref);
 
-/** Snapshot the working tree (incl. untracked) onto `ref`; null outside a repo. */
-const snapshot = (ref) => gitSnapshot({ cwd, sessionId: sid, ref });
+/** Snapshot the working tree (incl. untracked) onto `ref`. Never throws:
+ *  `{ snap, error }`, with `snap` null outside a repo or when it failed. */
+const snapshot = (ref) => trySnapshot({ cwd, sessionId: sid, ref });
+
+/** What to print when a round has no restore point. */
+const noSnapshot = (error) => error
+  ? `NONE — snapshot failed (${error}), so ${CMD} restore cannot roll this round back`
+  : `NONE — not a git repository, so ${CMD} restore cannot roll anything back`;
 
 const fmtRound = (r, mark) =>
   `  ${mark} round ${r.n}  ${r.at}  ${String(r.ref || '').slice(0, 12)}  (${roundRef(sid, r.n)})`;
@@ -161,15 +167,14 @@ if (cmd === 'start') {
   fs.mkdirSync(sandbox, { recursive: true });
 
   if (!existing) {
-    const snap = snapshot(roundRef(sid, 1));
+    // Arm even if the snapshot failed: writes must be blocked either way.
+    const { snap, error } = snapshot(roundRef(sid, 1));
     writeState(sid, {
       phase: 'probe', sandbox, cwd, startedAt: new Date().toISOString(),
-      snapshot: snap, round: 1,
+      snapshot: snap, round: 1, ...(error ? { snapshotError: error } : {}),
       rounds: snap ? [{ n: 1, at: snap.at, ref: snap.ref, head: snap.head, branch: snap.branch }] : [],
     });
-    const snapLine = snap
-      ? `${snap.ref.slice(0, 12)} (restorable via ${CMD} restore)`
-      : `NONE — not a git repository, so ${CMD} restore cannot roll anything back`;
+    const snapLine = snap ? `${snap.ref.slice(0, 12)} (restorable via ${CMD} restore)` : noSnapshot(error);
     console.log(`PROBE MODE ON (round 1, phase: probe)
 Sandbox (only writable path): ${sandbox}
 Project: ${cwd}
@@ -179,8 +184,8 @@ Writes outside the sandbox are denied by hook until a plan is approved.`);
   } else {
     // Already armed: begin a NEW round. Earlier snapshots are never overwritten.
     const rounds = normalizeRounds(existing);
-    const n = (rounds[rounds.length - 1]?.n || 0) + 1;
-    const snap = snapshot(roundRef(sid, n));
+    const n = Math.max(rounds[rounds.length - 1]?.n || 0, existing.round || 0) + 1; // a round without a snapshot still counts
+    const { snap, error } = snapshot(roundRef(sid, n));
     const was = existing.phase;
     existing.phase = 'probe';
     existing.round = n;
@@ -192,7 +197,7 @@ Writes outside the sandbox are denied by hook until a plan is approved.`);
     console.log(`NEW RESEARCH ROUND ${n} (was: ${was}, now phase: probe)
 Sandbox (only writable path): ${sandbox}
 Project: ${cwd}
-Snapshot: ${snap ? `${snap.ref.slice(0, 12)} pinned at ${roundRef(sid, n)}` : 'NONE — not a git repository'}
+Snapshot: ${snap ? `${snap.ref.slice(0, 12)} pinned at ${roundRef(sid, n)}` : noSnapshot(error)}
 WRITES ARE BLOCKED AGAIN until a new plan is approved.
 Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', ') || 'none'}.`);
     console.log(`\n${PHASE_HINT.probe}`);

@@ -32,7 +32,7 @@ import os from 'node:os';
 import {
   readState, writeState, statePath, normalizeRounds, roundRef, pruneStateDir,
 } from '../shared/state.mjs';
-import { snapshot, restore, refExists } from '../shared/git.mjs';
+import { trySnapshot, restore, refExists } from '../shared/git.mjs';
 import { sessionRules, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
 import { analyzeSegments, prepare } from '../shared/shell.mjs';
 import { contractText } from '../shared/contract.mjs';
@@ -52,6 +52,10 @@ const PLANS_DIR = path.join(HOME, '.opencode', 'plan');
 /** Claude also treats this as a writable root; kept for parity so artifacts can
  *  live next to the code instead of under $HOME. */
 const inProjectSandbox = (locationDir) => path.join(locationDir, '.probe-sandbox');
+/** What to tell the model when a round has no restore point. */
+const noSnapshot = (error) => error
+  ? `NONE — snapshot failed (${error}), so ${CMD} restore cannot roll this round back`
+  : `NONE — not a git repository, so ${CMD} restore cannot roll anything back`;
 
 export default {
   id: 'probe-mode',
@@ -174,12 +178,14 @@ export default {
       let snapshotLine;
 
       if (!existing) {
-        const snap = snapshot({ cwd: locationDir, sessionId: sessionID, ref: roundRef(sessionID, 1) });
+        // Arm even if the snapshot failed: writes must be blocked either way.
+        const { snap, error } = trySnapshot({ cwd: locationDir, sessionId: sessionID, ref: roundRef(sessionID, 1) });
         state = {
           phase: 'probe',
           round: 1,
           rounds: snap ? [{ n: 1, at: snap.at, ref: snap.ref, head: snap.head, branch: snap.branch }] : [],
           snapshot: snap,
+          ...(error ? { snapshotError: error } : {}),
           sandbox,
           cwd: locationDir,
           startedAt: new Date().toISOString(),
@@ -187,13 +193,11 @@ export default {
           host: 'opencode',
         };
         writeState(stateDir, sessionID, state);
-        snapshotLine = snap
-          ? `${snap.ref.slice(0, 12)} (restorable via ${CMD} restore)`
-          : `NONE — not a git repository, so ${CMD} restore cannot roll anything back`;
+        snapshotLine = snap ? `${snap.ref.slice(0, 12)} (restorable via ${CMD} restore)` : noSnapshot(error);
       } else {
         const rounds = normalizeRounds(existing);
-        const n = (rounds[rounds.length - 1]?.n || 0) + 1;
-        const snap = snapshot({ cwd: locationDir, sessionId: sessionID, ref: roundRef(sessionID, n) });
+        const n = Math.max(rounds[rounds.length - 1]?.n || 0, existing.round || 0) + 1; // a round without a snapshot still counts
+        const { snap, error } = trySnapshot({ cwd: locationDir, sessionId: sessionID, ref: roundRef(sessionID, n) });
         existing.phase = 'probe';
         existing.round = n;
         existing.rounds = snap
@@ -204,9 +208,7 @@ export default {
         existing.host = 'opencode';
         writeState(stateDir, sessionID, existing);
         state = existing;
-        snapshotLine = snap
-          ? `${snap.ref.slice(0, 12)} pinned at ${roundRef(sessionID, n)}`
-          : 'NONE — not a git repository';
+        snapshotLine = snap ? `${snap.ref.slice(0, 12)} pinned at ${roundRef(sessionID, n)}` : noSnapshot(error);
       }
 
       await applyRules(sessionID, 'probe', state);

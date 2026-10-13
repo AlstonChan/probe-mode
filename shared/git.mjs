@@ -7,6 +7,10 @@
 // shell deny-list, is the real backstop for "nothing outside the sandbox
 // changed".
 //
+// On an unborn branch (a repo with no commits yet) the snapshot is a parentless
+// commit and its `head` is null; restoring it takes the branch back to an empty
+// history.
+//
 // Restore previews first and changes nothing until `force`. Before applying it
 // snapshots where we are (to `refs/probe/<session>-undo`) and stashes any
 // current changes, so the restore itself is undoable.
@@ -31,6 +35,19 @@ export const refExists = (cwd, ref) => {
   try { git(cwd, ['rev-parse', '--verify', '--quiet', ref]); return true; } catch { return false; }
 };
 
+/** The commit HEAD points at, or null on an unborn branch (no commits yet). */
+const headOf = (cwd) => {
+  try { return git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']); } catch { return null; }
+};
+
+/** The ref HEAD is attached to (also on an unborn branch), or null when detached. */
+const symbolicHead = (cwd) => {
+  try { return git(cwd, ['symbolic-ref', '-q', 'HEAD']); } catch { return null; }
+};
+
+/** Short label for a snapshot's HEAD, which is null on an unborn branch. */
+const headLabel = (head) => (head ? head.slice(0, 12) : 'an empty history (no commits)');
+
 /**
  * Commit the current working tree (including untracked files) without touching
  * the real index or worktree, and pin it to `ref` so gc cannot collect it.
@@ -38,24 +55,46 @@ export const refExists = (cwd, ref) => {
  */
 export function snapshot({ cwd, sessionId, ref }) {
   if (!isRepo(cwd)) return null;
-  const head = git(cwd, ['rev-parse', 'HEAD']);
-  const branch = (() => { try { return git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']); } catch { return 'HEAD'; } })();
+  const head = headOf(cwd);
+  const sym = symbolicHead(cwd);
+  const branch = sym ? sym.replace(/^refs\/heads\//, '') : 'HEAD';
   const idx = path.join(os.tmpdir(), `probe-index-${sessionId}-${Date.now()}`);
   try { fs.unlinkSync(idx); } catch {}
   const env = { ...process.env, GIT_INDEX_FILE: idx };
-  git(cwd, ['read-tree', 'HEAD'], { env });
-  git(cwd, ['add', '-A'], { env });
-  const tree = git(cwd, ['write-tree'], { env });
-  const commit = git(cwd, ['commit-tree', tree, '-p', head, '-m', `probe snapshot ${sessionId} ${ref}`]);
-  git(cwd, ['update-ref', ref, commit]); // pin against gc
-  try { fs.unlinkSync(idx); } catch {}
-  return { head, branch, ref: commit, at: new Date().toISOString() };
+  try {
+    git(cwd, head ? ['read-tree', head] : ['read-tree', '--empty'], { env });
+    git(cwd, ['add', '-A'], { env });
+    const tree = git(cwd, ['write-tree'], { env });
+    const parent = head ? ['-p', head] : [];
+    const commit = git(cwd, ['commit-tree', tree, ...parent, '-m', `probe snapshot ${sessionId} ${ref}`]);
+    git(cwd, ['update-ref', ref, commit]); // pin against gc
+    return { head, branch, ref: commit, at: new Date().toISOString() };
+  } finally {
+    try { fs.unlinkSync(idx); } catch {}
+  }
+}
+
+/**
+ * snapshot() that never throws, so arming never depends on it. Returns
+ * `{ snap, error }`; `snap` null with no error means "not a git repository".
+ */
+export function trySnapshot(opts) {
+  try {
+    return { snap: snapshot(opts), error: null };
+  } catch (err) {
+    const msg = String(err?.stderr || err?.message || err).split('\n').map((l) => l.trim()).find(Boolean);
+    return { snap: null, error: msg || 'unknown error' };
+  }
 }
 
 /** Resolve which snapshot a restore should target, from the CLI flags. */
 export function resolveTarget({ state, argv }) {
   const rounds = normalizeRounds(state);
-  if (!rounds.length) return { error: 'No snapshot: this directory is not a git repository. Nothing to restore.' };
+  if (!rounds.length) {
+    return { error: state.snapshotError
+      ? `No snapshot: snapshotting failed when probe mode started (${state.snapshotError}). Nothing to restore.`
+      : 'No snapshot: this directory is not a git repository. Nothing to restore.' };
+  }
 
   if (argv.includes('--undo')) {
     const u = state.undo;
@@ -99,20 +138,26 @@ export function restore({ cwd, sessionId, stateDir, state, argv, force, wording 
 
   const snap = target.snap;
   const rounds = normalizeRounds(state);
+  // A snapshot taken before the first commit has no head: going back to it
+  // empties the branch, so every commit on it is rolled back. That branch is
+  // the one HEAD is on now, or the snapshot's own if HEAD has been detached.
+  const emptyRef = snap.head ? null : (symbolicHead(cwd) || `refs/heads/${snap.branch}`);
   const commits = (() => {
-    try { return git(cwd, ['log', '--oneline', `${snap.head}..HEAD`]).split('\n').filter(Boolean); }
+    const range = snap.head ? `${snap.head}..HEAD` : emptyRef;
+    if (!snap.head && !refExists(cwd, emptyRef)) return [];
+    try { return git(cwd, ['log', '--oneline', range]).split('\n').filter(Boolean); }
     catch { return []; }
   })();
   const changed = (() => {
     try { return git(cwd, ['diff', '--stat', snap.ref]).split('\n').filter(Boolean); }
     catch { return []; }
   })();
-  const branch = (() => { try { return git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']); } catch { return snap.branch; } })();
+  const branch = (() => { const s = symbolicHead(cwd); return s ? s.replace(/^refs\/heads\//, '') : 'HEAD'; })();
 
   if (!force) {
     const out = ['RESTORE PREVIEW — nothing has been changed yet.', ''];
     out.push(`Target: ${target.label}`);
-    out.push(`  HEAD would go from ${branch} back to ${snap.head.slice(0, 12)} on ${snap.branch}`);
+    out.push(`  HEAD would go from ${branch} back to ${headLabel(snap.head)} on ${snap.branch}`);
     out.push('');
     if (!target.isUndo && rounds.length > 1) {
       out.push('Rounds in this session:');
@@ -121,7 +166,9 @@ export function restore({ cwd, sessionId, stateDir, state, argv, force, wording 
       out.push('');
     }
     if (commits.length) {
-      out.push(`${commits.length} commit(s) WOULD BE ROLLED BACK:`);
+      out.push(snap.head
+        ? `${commits.length} commit(s) WOULD BE ROLLED BACK:`
+        : `${commits.length} commit(s) WOULD BE ROLLED BACK — the snapshot predates the first commit, so ${emptyRef.replace(/^refs\/heads\//, '')} goes back to an empty history:`);
       commits.forEach((c) => out.push(`  ${c}`));
     } else {
       out.push('No commits would be rolled back.');
@@ -149,17 +196,28 @@ export function restore({ cwd, sessionId, stateDir, state, argv, force, wording 
     lines.push(words.undoSaved);
   }
   if (git(cwd, ['status', '--porcelain']).length > 0) {
-    git(cwd, ['stash', 'push', '-u', '-m', `probe-discard ${new Date().toISOString()}`]);
-    lines.push('Current changes also stashed (git stash list).');
+    if (headOf(cwd)) {
+      git(cwd, ['stash', 'push', '-u', '-m', `probe-discard ${new Date().toISOString()}`]);
+      lines.push('Current changes also stashed (git stash list).');
+    } else {
+      // No commit to stash against. Clear what `stash -u` would have taken
+      // (untracked, not ignored); the undo point above already holds it.
+      git(cwd, ['clean', '-fdq']);
+    }
   }
 
-  git(cwd, ['reset', '--hard', snap.head]);           // branch tip back where it was
+  if (snap.head) {
+    git(cwd, ['reset', '--hard', snap.head]);         // branch tip back where it was
+  } else {
+    git(cwd, ['symbolic-ref', 'HEAD', emptyRef]);     // attach (no-op unless detached)
+    if (refExists(cwd, emptyRef)) git(cwd, ['update-ref', '-d', emptyRef]); // unborn again
+  }
   git(cwd, ['read-tree', '-u', '--reset', snap.ref]); // worktree + index == snapshot
   git(cwd, ['reset', '--quiet']);                     // unstage, keep worktree
 
   writeState(stateDir, sessionId, state);
   lines.push(`Restored to ${target.label}.`);
-  lines.push(`HEAD: ${snap.head.slice(0, 12)} on ${snap.branch}`);
+  lines.push(`HEAD: ${headLabel(snap.head)} on ${snap.branch}`);
   if (commits.length) lines.push(`${commits.length} commit(s) rolled back — also in git reflog.`);
   lines.push(`Sandbox kept at ${state.sandbox} — delete it yourself if you want it gone.`);
   return { text: lines.join('\n'), changed: true };
