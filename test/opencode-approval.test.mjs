@@ -124,3 +124,17 @@ describe('question-tool approval while planning', () => {
     assert.match(ev.message, /APPROVAL/i);
   });
 });
+
+describe('shell commands the coarse fallback parks at ask', () => {
+  test('a read-only listing is allowed instead of raising a dialog', async () => {
+    const ev = { sessionID: 'parent', action: 'shell', effect: 'ask', resources: ['git tag -l'] };
+    await evaluate(ev);
+    assert.equal(ev.effect, 'allow');
+  });
+
+  test('a real write is still denied', async () => {
+    const ev = { sessionID: 'parent', action: 'shell', effect: 'ask', resources: ['git tag v9'] };
+    await evaluate(ev);
+    assert.equal(ev.effect, 'deny');
+  });
+});

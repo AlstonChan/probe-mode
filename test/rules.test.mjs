@@ -27,7 +27,7 @@ import path from 'node:path';
 import {
   sessionRules, matchEffect, resourcePath, shellDenied, SHELL_DENY_PATTERNS, wildcardMatch,
 } from '../shared/rules.mjs';
-import { analyzeCommand, MUTATORS } from '../shared/shell.mjs';
+import { analyzeCommand, describeCommand } from '../shared/shell.mjs';
 
 const GUARD = path.join(import.meta.dirname, '..', 'hooks', 'probe-guard.mjs');
 const SID = 'parity';
@@ -244,14 +244,12 @@ describe('OpenCode session rules', () => {
     }
   });
 
-  test('the mutator list the hook uses is the one the guard inlines', () => {
-    // Both copies are deliberate (the guard cannot import), so pin the shapes
-    // that matter: a family the guard lost would silently unblock a host.
-    const sources = MUTATORS.map((re) => re.source);
-    assert.ok(sources.some((s) => s.includes('git\\s+(add|commit')), 'git writes family present');
-    assert.ok(sources.some((s) => s.includes('npm|pnpm|yarn|bun')), 'package managers present');
-    assert.ok(sources.some((s) => s.includes('terraform')), 'terraform present');
-    assert.ok(sources.some((s) => s.includes('manage\\.py')), 'migrations present');
+  test('every family the shell fallback parks is classified as a mutation', () => {
+    // A family the analysis lost would silently unblock both hosts.
+    for (const cmd of ['git commit -m x', 'npm install x', 'terraform apply', 'python manage.py migrate',
+      'kubectl apply -f x', 'docker compose up', 'helm install x', 'wget u', 'cargo publish', 'Remove-Item x']) {
+      assert.equal(describeCommand(cmd).kind, 'mutate', cmd);
+    }
     assert.ok(SHELL_DENY_PATTERNS.length > 100, 'the shell fallback covers the same families');
   });
 

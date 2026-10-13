@@ -33,8 +33,8 @@ import {
   readState, writeState, statePath, normalizeRounds, roundRef, pruneStateDir,
 } from '../shared/state.mjs';
 import { trySnapshot, restore, refExists } from '../shared/git.mjs';
-import { sessionRules, matchEffect, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
-import { analyzeSegments, prepare } from '../shared/shell.mjs';
+import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
+import { analyzeSegments } from '../shared/shell.mjs';
 import { contractText } from '../shared/contract.mjs';
 import {
   CMD, parseInvocation, statusText, armPrompt, implementPrompt, approvePrompt,
@@ -361,12 +361,17 @@ export default {
       //                                   own ask/allow still applies
       if (event.action === 'shell') {
         if (event.effect === 'deny') return;
-        const segments = event.resources.map((resource) => prepare(String(resource)));
-        const verdict = analyzeSegments(segments, {
+        const verdict = analyzeSegments(event.resources, {
           cwd: locationDir,
           roots: rootsFor(state),
         });
-        if (!verdict.sawMutation) return;
+        if (!verdict.sawMutation) {
+          // The fallback patterns are coarse (`git tag *` also matches a listing).
+          // When the analysis finds no write, an `ask` that only our own pattern
+          // raised is a false alarm, not a decision for the user.
+          if (event.effect === 'ask' && event.resources.some((r) => shellDenied(String(r)))) event.effect = 'allow';
+          return;
+        }
         if (verdict.offenders.length > 0 || verdict.unresolved.length > 0) {
           event.effect = 'deny';
           event.message = shellDenyMessage({

@@ -194,7 +194,11 @@ try {
     deny(`probe-mode guard could not load its shell analysis (${err && err.message}); denying to stay safe. Run ${CMD} status.`);
   }
 
-  const verdict = shell.analyzeCommand(rawCmd, { cwd: input.cwd || process.cwd(), roots });
+  const verdict = shell.analyzeCommand(rawCmd, {
+    cwd: input.cwd || process.cwd(),
+    roots,
+    shell: tool === 'PowerShell' ? 'powershell' : 'bash',
+  });
   if (!verdict) pass();
 
   deny(

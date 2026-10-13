@@ -50,9 +50,11 @@ const PACKAGE_VERBS = ['i', 'install', 'add', 'remove', 'rm', 'uninstall', 'upda
 const GIT_WRITES = [
   'add', 'commit', 'checkout', 'switch', 'restore', 'reset', 'merge', 'rebase', 'cherry-pick',
   'revert', 'stash', 'clean', 'apply', 'am', 'push', 'rm', 'mv', 'tag', 'config', 'worktree',
+  'pull', 'fetch', 'gc', 'prune', 'repack', 'notes', 'update-ref', 'filter-branch', 'replace',
 ];
 const FILE_MUTATORS = [
   'rm', 'rmdir', 'mv', 'cp', 'mkdir', 'touch', 'ln', 'chmod', 'chown', 'truncate', 'dd', 'shred', 'unlink', 'patch',
+  'del', 'erase', 'rd', 'ni', 'mklink',
 ];
 const MIGRATIONS = [
   'alembic upgrade', 'alembic downgrade', 'alembic stamp', 'alembic revision',
@@ -76,7 +78,7 @@ export const SHELL_DENY_FAMILIES = {
   fileMutators: FILE_MUTATORS.map((verb) => [`${verb} *`]),
   // In-place editors only: `sed s/a/b/` and `perl -pe` read, `sed -i` and
   // `perl -i` write.
-  inPlace: [['sed -i *'], ['sed * -i *'], ['perl -i *'], ['perl * -i *']],
+  inPlace: [['sed -i *'], ['sed * -i *'], ['perl -i *'], ['perl * -i *'], ['find * -delete*'], ['sort -o *'], ['sort * -o *']],
   git: GIT_WRITES.map((verb) => [`git ${verb} *`]),
   packages: PACKAGEMANAGERS.flatMap((pm) => PACKAGE_VERBS.map((verb) => [`${pm} ${verb} *`])),
   interpreters: [
@@ -137,6 +139,7 @@ export const SHELL_DENY_FAMILIES = {
   shellEscapes: [
     ['New-Item *'], ['Set-Content *'], ['Add-Content *'], ['Out-File *'], ['Remove-Item *'],
     ['Move-Item *'], ['Copy-Item *'], ['Rename-Item *'], ['Set-ItemProperty *'], ['New-ItemProperty *'],
+    ['Clear-Content *'], ['Tee-Object *'], ['* Tee-Object *'], ['Set-Item *'],
     ['* New-Item *'], ['* Set-Content *'], ['* Remove-Item *'], ['* Out-File *'],
     // Host control surfaces. The session's rules live in OpenCode's database,
     // not in a file the model can edit — but the CLI that patches them over
