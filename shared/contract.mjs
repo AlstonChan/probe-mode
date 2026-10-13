@@ -63,3 +63,20 @@ export function contractText({ phase, round, sandbox, cmd, host = 'claude' }) {
     pick(host, 'enforcement', cmd),
   ].join('\n');
 }
+
+/**
+ * `implement` only makes sense from research. From `off` there is nothing to
+ * plan against; from `implementing` it would silently re-lock writes in the
+ * middle of the work. Returns the refusal text, or null when it may proceed.
+ */
+export function implementRefusal(phase, cmd) {
+  if (phase === 'off') {
+    return `Probe mode is off, so there is nothing to plan. Nothing was changed.\n` +
+      `To research first, run ${cmd} <question>; to just implement, go ahead without probe mode.`;
+  }
+  if (phase === 'implementing') {
+    return `Writes are already unlocked (a plan was approved), so implement would only re-lock them. Nothing was changed.\n` +
+      `To research and plan something new, run ${cmd} <question> to open a new round first.`;
+  }
+  return null;
+}

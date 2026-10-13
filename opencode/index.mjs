@@ -35,7 +35,7 @@ import {
 import { trySnapshot, diffSince, listRounds, pruneRounds, restore, refExists } from '../shared/git.mjs';
 import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
 import { analyzeSegments, checkReport, loadPolicy, matchPolicy } from '../shared/shell.mjs';
-import { contractText } from '../shared/contract.mjs';
+import { contractText, implementRefusal } from '../shared/contract.mjs';
 import { exportRound } from '../shared/export.mjs';
 import {
   CMD, parseInvocation, statusText, armPrompt, implementPrompt, approvePrompt,
@@ -280,6 +280,8 @@ export default {
 
       if (sub === 'implement') {
         if (!state) return say('Probe mode is not active.');
+        const refusal = implementRefusal(state.phase, CMD);
+        if (refusal) return say(`Report this to the user as-is, and do not start planning:\n\n${refusal}`);
         state.phase = 'planning';
         writeState(stateDir, owner, state);
         await applyRulesFor(sessionID, 'planning', state);

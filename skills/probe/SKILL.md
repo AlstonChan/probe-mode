@@ -13,6 +13,8 @@ Run the control command for `$ARGUMENTS`, then follow the contract below.
   round**: writes are blocked again and every earlier round stays restorable.
 - `status` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" status` and report it.
 - `implement` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" implement`, then call **EnterPlanMode** and write the plan.
+  If it prints "Nothing was changed" instead (probe mode is off, or writes are already
+  unlocked), relay that and stop — do not enter plan mode.
 - `restore` → run `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" restore`. This is a
   **preview that changes nothing**. Show the user exactly what it printed — especially any
   commits it would roll back — and wait for them to confirm. Only then re-run the same

@@ -16,6 +16,7 @@ import {
 } from '../shared/git.mjs';
 import { checkReport, loadPolicy } from '../shared/shell.mjs';
 import { exportRound } from '../shared/export.mjs';
+import { implementRefusal } from '../shared/contract.mjs';
 
 const PHASE_HINT = {
   probe: `Investigating. Say \`${CMD} implement\` when you want a plan.`,
@@ -239,6 +240,8 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   }
 } else if (cmd === 'implement') {
   if (!existing) { console.log('Probe mode is not active.'); process.exit(0); }
+  const refusal = implementRefusal(existing.phase, CMD);
+  if (refusal) { console.log(refusal); process.exit(0); }
   existing.phase = 'planning';
   writeState(sid, existing);
   console.log('Phase -> planning. Writes are STILL blocked. Call EnterPlanMode, write the plan, then ExitPlanMode for approval.');
