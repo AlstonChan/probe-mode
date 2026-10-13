@@ -359,6 +359,14 @@ describe('fails closed', () => {
     assert.equal(write(path.join(PROJECT, 'src/main.py')), 'deny');
   });
 
+  test('denies a shell command when the shared shell analysis cannot load', () => {
+    setPhase('probe');
+    // The isolated copy has no ../shared next to it, so the dynamic import fails.
+    const reason = withIsolatedGuard(false, (guardPath) =>
+      decideAt(guardPath, 'Bash', { command: 'ls' }));
+    assert.match(reason, /could not load its shell analysis/);
+  });
+
   for (const body of ['null', '42', '[]', '"probe"']) {
     test(`denies when the state file is valid JSON but not an object (${body})`, () => {
       fs.writeFileSync(path.join(CFG, 'probe-state', `${SID}.json`), body);
