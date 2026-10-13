@@ -80,9 +80,11 @@ lifts the block — approving the plan is the only thing that does. Leaving plan
 any other way leaves the project locked.
 
 `/probe restore` rolls the working tree back to the start of the current round
-(git snapshot; current changes are stashed first as a safety net). It previews first
-and only acts on a second, explicitly confirmed run, and the restore itself is
-reversible with `--undo`.
+(git snapshot; the current state is snapshotted first as an undo point). It previews
+first and only acts on a second, explicitly confirmed run, and the restore itself is
+reversible with `--undo`. It always acts on the repository the session was armed in,
+and refuses while a different branch is checked out than the one the snapshot was
+taken on — relay that message and let the user switch back.
 
 ## Rounds
 

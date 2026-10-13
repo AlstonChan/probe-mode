@@ -106,7 +106,7 @@ describe('restore from a no-commit snapshot', () => {
 
     const out = ctl('restore');
     assert.match(out, /RESTORE PREVIEW/);
-    assert.match(out, /back to an empty history \(no commits\) on main/);
+    assert.match(out, /main would go back to an empty history \(no commits\)/);
     assert.match(out, /No commits would be rolled back/);
     assert.match(out, /a\.txt/);
     assert.match(out, /--force/);

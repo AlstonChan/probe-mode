@@ -111,7 +111,7 @@ export function stopPrompt() {
 /** Claude's preview footer names probe-ctl; ours names the slash command. */
 export const RESTORE_WORDING = {
   undoSaved: `Undo point saved — reverse this with: ${CMD} restore --undo --force`,
-  reversible: `\`${CMD} restore --undo\` puts it back. Changes are also stashed.`,
+  reversible: `\`${CMD} restore --undo\` puts it back.`,
   confirm: `Show this preview to the user, then run ${CMD} restore --force only after they confirm.`,
 };
 

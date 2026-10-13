@@ -244,9 +244,13 @@ never costs you the ability to undo earlier work.
 
 `/probe start` takes a git snapshot using a temporary index, so it captures both
 uncommitted changes and untracked files without touching your real index or working
-tree. `/probe restore` stashes whatever is current (safety net — nothing is destroyed),
-resets to the target commit, then restores the snapshot exactly. Your branch is left
-where it was.
+tree, and it records what was staged. `/probe restore` first snapshots whatever is
+current as an undo point (nothing is destroyed — `--undo` puts it back), then resets
+the branch to the target commit and restores the worktree and index exactly.
+
+It always acts on the repository the session was armed in, wherever you run it from,
+and only on the branch the snapshot was taken on: if a different branch is checked
+out it refuses and tells you to switch back, rather than moving the wrong branch.
 
 | | |
 |---|---|
