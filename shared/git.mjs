@@ -329,3 +329,44 @@ export function diffSince({ cwd, sessionId, state, argv }) {
   if (!argv.includes('--patch') && out) lines.push('', 'Add --patch for the full diff.');
   return lines.join('\n');
 }
+
+/** `rounds`: every round's restore point, and whether its ref still exists. */
+export function listRounds({ cwd, sessionId, state }) {
+  const rounds = normalizeRounds(state);
+  const repo = state.cwd || cwd;
+  if (!rounds.length) return 'No rounds have a snapshot in this session.';
+  const lines = [`Rounds (current: ${state.round || rounds[rounds.length - 1].n}):`];
+  for (const r of rounds) lines.push(fmtRound(sessionId, r, refExists(repo, roundRef(sessionId, r.n)) ? 'ok' : '!!'));
+  if (state.undo) lines.push(`Undo point: ${String(state.undo.ref).slice(0, 12)} (${state.undo.at})`);
+  return lines.join('\n');
+}
+
+/**
+ * `rounds prune`: drop the restore points of every round except the current
+ * one. Previews unless `force`; the undo point is kept.
+ */
+export function pruneRounds({ cwd, sessionId, stateDir, state, force, wording = {} }) {
+  const rounds = normalizeRounds(state);
+  const current = state.round || (rounds.length ? rounds[rounds.length - 1].n : 0);
+  const doomed = rounds.filter((r) => r.n !== current);
+  if (!doomed.length) return 'Nothing to prune: only the current round has a restore point.';
+  const repo = state.cwd || cwd;
+  if (!force) {
+    return [
+      'PRUNE PREVIEW — nothing has been changed yet.',
+      '',
+      'These restore points would be deleted for good:',
+      ...doomed.map((r) => fmtRound(sessionId, r, '  ')),
+      '',
+      `Round ${current} (current) and the undo point are kept.`,
+      wording.confirm || 'Ask the user to confirm, then re-run the same command with --force',
+    ].join('\n');
+  }
+  for (const r of doomed) {
+    try { if (refExists(repo, roundRef(sessionId, r.n))) git(repo, ['update-ref', '-d', roundRef(sessionId, r.n)]); } catch {}
+  }
+  state.rounds = rounds.filter((r) => r.n === current);
+  if (!state.rounds.some((r) => r.n === 1)) state.snapshot = null;
+  writeState(stateDir, sessionId, state);
+  return `Pruned ${doomed.length} restore point(s): ${doomed.map((r) => `round ${r.n}`).join(', ')}. Round ${current} kept.`;
+}

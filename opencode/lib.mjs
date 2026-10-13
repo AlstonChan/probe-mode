@@ -10,7 +10,7 @@ export const CMD = '/probe';
 /** Subcommands the user can type. Anything else is treated as a research
  *  question, so `/probe does batching help?` arms the mode with that question —
  *  exactly how Claude Code's `/probe <question>` behaves. */
-export const SUBCOMMANDS = ['start', 'status', 'implement', 'approve', 'restore', 'stop', 'check', 'diff'];
+export const SUBCOMMANDS = ['start', 'status', 'implement', 'approve', 'restore', 'stop', 'check', 'diff', 'rounds'];
 
 export function parseInvocation(text) {
   const raw = String(text ?? '').trim();
@@ -115,6 +115,10 @@ export const RESTORE_WORDING = {
   undoSaved: `Undo point saved — reverse this with: ${CMD} restore --undo --force`,
   reversible: `\`${CMD} restore --undo\` puts it back.`,
   confirm: `Show this preview to the user, then run ${CMD} restore --force only after they confirm.`,
+};
+
+export const PRUNE_WORDING = {
+  confirm: `Show this preview to the user. Only they run ${CMD} rounds prune --force.`,
 };
 
 export function restoreRelay({ text, force }) {

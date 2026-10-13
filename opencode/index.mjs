@@ -32,13 +32,13 @@ import os from 'node:os';
 import {
   readState, writeState, statePath, normalizeRounds, roundRef, pruneStateDir,
 } from '../shared/state.mjs';
-import { trySnapshot, diffSince, restore, refExists } from '../shared/git.mjs';
+import { trySnapshot, diffSince, listRounds, pruneRounds, restore, refExists } from '../shared/git.mjs';
 import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
 import { analyzeSegments, checkReport } from '../shared/shell.mjs';
 import { contractText } from '../shared/contract.mjs';
 import {
   CMD, parseInvocation, statusText, armPrompt, implementPrompt, approvePrompt,
-  restoreRelay, stopPrompt, RESTORE_WORDING, sandboxFor, deniedMessageFor,
+  restoreRelay, stopPrompt, RESTORE_WORDING, PRUNE_WORDING, sandboxFor, deniedMessageFor,
 } from './lib.mjs';
 
 const HOME = os.homedir();
@@ -236,6 +236,14 @@ export default {
         return say(await arm(sessionID, question));
       }
 
+      if (sub === 'rounds') {
+        if (!state) return say('Probe mode is not active for this session.');
+        const text = args[0] === 'prune'
+          ? pruneRounds({ cwd: locationDir, sessionId: owner, stateDir, state, force: args.includes('--force'), wording: PRUNE_WORDING })
+          : listRounds({ cwd: locationDir, sessionId: owner, state });
+        return say(`Report this to the user as-is (never add --force yourself):\n\n${text}`);
+      }
+
       if (sub === 'diff') {
         if (!state) return say('Probe mode is not active for this session; no snapshot to compare against.');
         const text = diffSince({ cwd: locationDir, sessionId: owner, state, argv: args });
@@ -304,7 +312,7 @@ export default {
       editor.add({
         name: 'probe',
         description:
-          'research-only mode: [question | status | implement | approve | restore [--force] | stop | check <cmd> | diff [--round N] [--patch]]',
+          'research-only mode: [question | status | implement | approve | restore [--force] | stop | check <cmd> | diff [--round N] [--patch] | rounds [prune [--force]]]',
         execute: runCommand,
       });
     });
