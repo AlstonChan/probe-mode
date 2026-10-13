@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {
-  readState, writeState, statePath, normalizeRounds, roundRef, pruneStateDir,
+  readState, writeState, statePath, normalizeRounds, roundRef, pruneStateDir, logDenial, denialSummary,
 } from '../shared/state.mjs';
 import { trySnapshot, diffSince, listRounds, pruneRounds, restore, refExists } from '../shared/git.mjs';
 import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
@@ -261,10 +261,8 @@ export default {
       }
 
       if (sub === 'status') {
-        const text = statusText(state, {
-          sessionId: owner,
-          refExists: (ref) => refExists(locationDir, ref),
-        });
+        const status = statusText(state, { sessionId: owner, refExists: (ref) => refExists(locationDir, ref) });
+        const text = state ? `${status}\n${denialSummary(stateDir, owner)}` : status;
         return say(
           `Report this probe status to the user as-is (no extra commentary):\n\n${text}`,
         );
@@ -364,6 +362,7 @@ export default {
         const effects = (event.resources ?? []).map((r) => matchEffect(rules, 'edit', String(r)));
         if (effects.includes('deny')) {
           event.effect = 'deny';
+          logDenial(stateDir, armed.owner, { tool: 'edit', what: (event.resources ?? []).join(', ').slice(0, 500), reason: 'edit outside the sandbox' });
           return;
         }
         // The approval moment. An `edit` that resolves to `ask` while planning
@@ -399,6 +398,11 @@ export default {
         }
         if (verdict.offenders.length > 0 || verdict.unresolved.length > 0) {
           event.effect = 'deny';
+          logDenial(stateDir, armed.owner, {
+            tool: 'shell',
+            what: event.resources.join(' && ').slice(0, 500),
+            reason: [...verdict.offenders, ...verdict.unresolved][0] ?? 'mutates outside the sandbox',
+          });
           event.message = shellDenyMessage({
             phase: state.phase,
             command: event.resources.join(' && '),

@@ -226,6 +226,7 @@ export function pruneStateDir(stateDir) {
       try { fs.unlinkSync(file); } catch { continue; }
       try { fs.rmSync(path.join(stateDir, sid), { recursive: true, force: true }); } catch {}
       try { fs.unlinkSync(path.join(stateDir, `${sid}.stop-intent`)); } catch {}
+      try { fs.unlinkSync(path.join(stateDir, `${sid}.denials.jsonl`)); } catch {}
       // The snapshot refs go with the state that pointed at them. Left behind,
       // they keep every untracked file a snapshot captured alive in the repo
       // forever (gc cannot collect them, and `push --mirror` would publish them).
@@ -245,4 +246,37 @@ export function pruneStateDir(stateDir) {
     }
   } catch {}
   return pruned;
+}
+
+// ------------------------------------------------------------------ denials
+
+export const denialLogPath = (stateDir, sessionId) => path.join(stateDir, `${sessionId}.denials.jsonl`);
+
+/** Append one denial. Best-effort and size-capped, like the guard's own copy. */
+export function logDenial(stateDir, sessionId, entry) {
+  try {
+    const file = denialLogPath(stateDir, sessionId);
+    try { if (fs.statSync(file).size > 256 * 1024) return; } catch {}
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+  } catch {}
+}
+
+/** Every logged denial for a session, oldest first; unparseable lines skipped. */
+export function readDenials(stateDir, sessionId) {
+  try {
+    return fs.readFileSync(denialLogPath(stateDir, sessionId), 'utf8').split('\n').filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** The status summary: a count and the most recent few. */
+export function denialSummary(stateDir, sessionId, last = 3) {
+  const all = readDenials(stateDir, sessionId);
+  if (!all.length) return 'Denials: none this session';
+  const lines = [`Denials: ${all.length} this session${all.length > last ? ` (last ${last})` : ''}:`];
+  for (const d of all.slice(-last)) lines.push(`  ${d.at}  ${d.tool}  ${String(d.what).slice(0, 80)}`);
+  return lines.join('\n');
 }

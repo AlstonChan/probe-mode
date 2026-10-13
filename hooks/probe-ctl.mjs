@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  CONFIG_DIR, STATE_DIR, inspectState, writeState, normalizeRounds, roundRef, CMD,
+  CONFIG_DIR, STATE_DIR, inspectState, denialSummary, writeState, normalizeRounds, roundRef, CMD,
   parseRefreshFlag, DEFAULT_REFRESH_INTERVAL, MIN_REFRESH_INTERVAL, MAX_REFRESH_INTERVAL,
 } from './probe-lib.mjs';
 import {
@@ -282,5 +282,6 @@ Rounds:`);
       : '  none (not a git repository — restore is unavailable)');
   }
   if (existing.undo) console.log(`Undo point: ${String(existing.undo.ref).slice(0, 12)} (${existing.undo.at})`);
+  console.log(denialSummary(sid));
   console.log(`\n${next}${statuslineNudge()}`);
 }

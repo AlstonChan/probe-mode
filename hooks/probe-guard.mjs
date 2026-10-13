@@ -38,7 +38,27 @@ const emit = (decision, reason) => {
   }));
   process.exit(0);
 };
-const deny = (reason) => emit('deny', reason);
+// Every denial is appended to <session>.denials.jsonl so false denials can be
+// diagnosed (`status` summarizes it). Outside every writable root, so the model
+// cannot forge or erase it. Best-effort: logging can never change a decision.
+const DENIAL_LOG_MAX = 256 * 1024;
+let logContext = null;
+const logDenial = (reason) => {
+  try {
+    if (!logContext || !logContext.session_id) return;
+    const file = path.join(STATE_DIR, `${logContext.session_id}.denials.jsonl`);
+    try { if (fs.statSync(file).size > DENIAL_LOG_MAX) return; } catch {}
+    const ti = logContext.tool_input || {};
+    const what = String(ti.command ?? ti.file_path ?? ti.notebook_path ?? '').slice(0, 500);
+    fs.appendFileSync(file, `${JSON.stringify({
+      at: new Date().toISOString(),
+      tool: logContext.tool_name,
+      what,
+      reason: String(reason).split('\n')[0].slice(0, 300),
+    })}\n`);
+  } catch {}
+};
+const deny = (reason) => { logDenial(reason); emit('deny', reason); };
 const pass = () => process.exit(0);
 
 // Going async makes an escaped throw exit 1, and Claude Code treats a non-zero
@@ -100,6 +120,7 @@ let input = null;
   // path below still denies, and the git snapshot remains the real backstop.
   if (!input || typeof input !== 'object') pass();
 }
+logContext = input;
 
 const stateFile = path.join(STATE_DIR, `${input.session_id}.json`);
 if (!fs.existsSync(stateFile)) pass(); // probe mode not active -> hook is inert

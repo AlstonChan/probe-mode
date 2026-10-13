@@ -132,9 +132,11 @@ describe('shell commands the coarse fallback parks at ask', () => {
     assert.equal(ev.effect, 'allow');
   });
 
-  test('a real write is still denied', async () => {
+  test('a real write is still denied, and logged', async () => {
     const ev = { sessionID: 'parent', action: 'shell', effect: 'ask', resources: ['git tag v9'] };
     await evaluate(ev);
     assert.equal(ev.effect, 'deny');
+    const { readDenials } = await import('../shared/state.mjs');
+    assert.ok(readDenials(STATE_DIR, 'parent').some((d) => d.what === 'git tag v9'));
   });
 });
