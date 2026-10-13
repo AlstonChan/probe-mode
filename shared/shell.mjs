@@ -1240,3 +1240,28 @@ export function describeCommand(rawCommand, shell = 'bash') {
   const v = classify(words, shell, 0);
   return v.kind === 'mutate' ? { kind: v.kind, label: v.label } : { kind: v.kind };
 }
+
+/**
+ * The `check` subcommand: would probe mode let this command run right now, and
+ * why. Same analysis the guard runs, so the answer is the guard's answer.
+ */
+export function checkReport(rawCommand, { cwd, roots, shell = 'bash', phase = 'probe' }) {
+  if (!String(rawCommand || '').trim()) return 'Usage: check "<command>" [--shell=powershell]';
+  const r = analyzeShell(rawCommand, { cwd, roots, shell });
+  const lines = [`Command: ${rawCommand}`, `Shell:   ${shell}`];
+  if (phase === 'implementing' || phase === 'off') {
+    lines.push(`Verdict: ALLOW — writes are not blocked in the ${phase} phase.`);
+    return lines.join('\n');
+  }
+  if (!r.sawMutation) {
+    lines.push('Verdict: ALLOW — it does not write anything.');
+  } else if (!r.offenders.length && !r.unresolved.length) {
+    lines.push('Verdict: ALLOW — every write lands inside the sandbox.');
+  } else {
+    lines.push('Verdict: DENY');
+    for (const o of r.offenders) lines.push(`  writes outside the sandbox: ${o}`);
+    for (const u of r.unresolved) lines.push(`  cannot pin down: ${u}`);
+  }
+  lines.push(`Writable roots: ${roots.filter(Boolean).join(', ') || 'none'}`);
+  return lines.join('\n');
+}

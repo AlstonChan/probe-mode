@@ -14,6 +14,7 @@ import {
 import {
   trySnapshot, restore as gitRestore, refExists as gitRefExists, CLAUDE_WORDING,
 } from '../shared/git.mjs';
+import { checkReport } from '../shared/shell.mjs';
 
 const PHASE_HINT = {
   probe: `Investigating. Say \`${CMD} implement\` when you want a plan.`,
@@ -247,6 +248,13 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   if (existing) { existing.phase = 'off'; delete existing.stopIntent; writeState(sid, existing); }
   try { fs.unlinkSync(stopIntentFile); } catch {}
   console.log(`Probe mode OFF. Snapshots kept; ${CMD} restore still works this session.`);
+} else if (cmd === 'check') {
+  const shellFlag = argv.find((a) => a.startsWith('--shell='));
+  const shell = shellFlag && /^--shell=(powershell|pwsh)$/i.test(shellFlag) ? 'powershell' : 'bash';
+  const command = argv.filter((a) => a !== shellFlag).join(' ');
+  const roots = existing ? [existing.sandbox, path.join(existing.cwd || cwd, '.probe-sandbox')] : [];
+  if (!existing) console.log('Probe mode is not active, so nothing is blocked. As if it were:');
+  console.log(checkReport(command, { cwd, roots, shell, phase: existing ? existing.phase : 'probe' }));
 } else if (cmd === 'setup') {
   setupStatusline(argv);
 } else {

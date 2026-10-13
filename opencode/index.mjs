@@ -34,7 +34,7 @@ import {
 } from '../shared/state.mjs';
 import { trySnapshot, restore, refExists } from '../shared/git.mjs';
 import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
-import { analyzeSegments } from '../shared/shell.mjs';
+import { analyzeSegments, checkReport } from '../shared/shell.mjs';
 import { contractText } from '../shared/contract.mjs';
 import {
   CMD, parseInvocation, statusText, armPrompt, implementPrompt, approvePrompt,
@@ -225,7 +225,7 @@ export default {
     const plansFileFor = (sessionID) => path.join(plansDir, `probe-${sessionID}.md`);
 
     const runCommand = async ({ sessionID, prompt, delivery }) => {
-      const { sub, args, question } = parseInvocation(prompt?.text);
+      const { sub, args, question, rest } = parseInvocation(prompt?.text);
       const armed = await armedFor(sessionID);
       const owner = armed?.owner ?? sessionID;
       const state = armed?.state ?? null;
@@ -234,6 +234,16 @@ export default {
 
       if (sub === 'start') {
         return say(await arm(sessionID, question));
+      }
+
+      if (sub === 'check') {
+        const text = checkReport(rest || '', {
+          cwd: locationDir,
+          roots: state ? rootsFor(state) : [],
+          phase: state ? state.phase : 'probe',
+        });
+        const note = state ? '' : 'Probe mode is not active, so nothing is blocked. As if it were:\n';
+        return say(`Report this to the user as-is:\n\n${note}${text}`);
       }
 
       if (sub === 'status') {
@@ -288,7 +298,7 @@ export default {
       editor.add({
         name: 'probe',
         description:
-          'research-only mode: [question | status | implement | approve | restore [--force] | stop]',
+          'research-only mode: [question | status | implement | approve | restore [--force] | stop | check <cmd>]',
         execute: runCommand,
       });
     });

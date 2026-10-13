@@ -2,7 +2,7 @@
 name: probe
 description: Auto-mode research that can never touch the project. Sources freely, writes benchmark/validation scripts only in a sandbox, proves the idea, and refuses to implement until you explicitly ask and approve a plan.
 disable-model-invocation: true
-argument-hint: [start|status|implement|restore|stop|setup] <question> [--refresh=N]
+argument-hint: [start|status|implement|restore|stop|setup|check] <question> [--refresh=N]
 allowed-tools: Bash(node *)
 ---
 
@@ -29,6 +29,11 @@ Run the control command for `$ARGUMENTS`, then follow the contract below.
   1-3600). Every tick spawns a process — four of them on Windows — so lower it only
   if the user wants a snappier row, and raise it if they mind the churn. A re-run
   preserves whatever interval they already chose unless `--refresh` is passed.
+- `check <command>` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" check '<command>'`
+  (single-quote the command so the shell passes it through untouched; add
+  `--shell=powershell` for a PowerShell command) and relay the verdict. A dry run of the
+  guard: it says whether that command would be allowed right now, and why, without
+  running it.
 
 The exact command name depends on how this was installed — plugin installs use
 `/probe-mode:probe`, standalone installs use plain `/probe`. Never hardcode `/probe`
