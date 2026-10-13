@@ -4,7 +4,9 @@
 #   ./install.sh                 install into ~/.claude
 #   ./install.sh --opencode      also wire the OpenCode host
 #   ./install.sh --refresh=30    install, status line ticks every 30s
-#   ./install.sh --uninstall     remove it again
+#   ./install.sh --uninstall     remove it again (session state is kept)
+#   ./install.sh --uninstall --purge          ...and delete probe-state/ too
+#   ./install.sh --uninstall --opencode-only  remove only the OpenCode shim
 #
 # Works on macOS, Linux, and Windows via Git Bash. Requires node (Claude Code
 # already needs a JS runtime, so you almost certainly have it).
@@ -14,11 +16,12 @@
 #   ~/.claude/shared/*.mjs                             created / removed
 #   ~/.claude/skills/probe/                            created / removed
 #   ~/.claude/settings.json                            hooks + statusLine merged
-#   ~/.claude/settings.json.probe-backup-<timestamp>   written before any edit
+#   ~/.claude/settings.json.probe-backup-<timestamp>   written before any edit (last 5 kept)
 #   ~/.config/opencode/plugins/probe/                  with --opencode
 #
-# It never overwrites unrelated settings, and it refuses to clobber a statusLine
-# you already have. The OpenCode side is a two-line shim per entry point that
+# It never overwrites unrelated settings — only hook entries whose command runs one
+# of probe-mode's own hook scripts are ever replaced or removed — and it refuses to
+# clobber a statusLine you already have. The OpenCode side is a two-line shim per entry point that
 # re-exports this checkout, so opencode.json(c) is never edited.
 
 set -euo pipefail
@@ -48,18 +51,24 @@ REFRESH_DEFAULT=10
 REFRESH=""
 UNINSTALL=0
 OPENCODE=0
+PURGE=0
+OPENCODE_ONLY=0
 
 usage() {
-  say "Usage: ./install.sh [--opencode] [--refresh=N] [--uninstall]"
+  say "Usage: ./install.sh [--opencode] [--refresh=N] [--uninstall [--purge] [--opencode-only]]"
   say "  --opencode    also wire the OpenCode host (writes a plugin shim, never edits opencode.json)"
   say "  --refresh=N   status-line refresh in seconds (default ${REFRESH_DEFAULT}, 1-3600)"
-  say "  --uninstall   remove probe-mode again"
+  say "  --uninstall   remove probe-mode again (keeps probe-state/, which a plugin install may share)"
+  say "  --purge       with --uninstall: also delete probe-state/ (session state and sandboxes)"
+  say "  --opencode-only  with --uninstall: remove only the OpenCode plugin shim"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --uninstall)  UNINSTALL=1 ;;
     --opencode)   OPENCODE=1 ;;
+    --purge)      PURGE=1 ;;
+    --opencode-only) OPENCODE_ONLY=1 ;;
     --refresh=*)  REFRESH="${1#--refresh=}" ;;
     # The explicit arity check matters: a bare trailing --refresh would otherwise
     # shift an empty stack, which under `set -e` exits with no message at all.
@@ -70,6 +79,10 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+if [ "$UNINSTALL" = "0" ] && { [ "$PURGE" = "1" ] || [ "$OPENCODE_ONLY" = "1" ]; }; then
+  die "--purge and --opencode-only only apply to --uninstall"
+fi
 
 if [ -n "$REFRESH" ]; then
   case "$REFRESH" in
@@ -84,31 +97,65 @@ topath() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
 }
 
+# Unique even for two runs in the same second, and only the newest few are kept.
 backup_settings() {
   [ -f "$SETTINGS" ] || return 0
-  local b="$SETTINGS.probe-backup-$(date +%Y%m%d-%H%M%S)"
+  local stamp b n=0
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  b="$SETTINGS.probe-backup-$stamp"
+  while [ -e "$b" ]; do n=$((n + 1)); b="$SETTINGS.probe-backup-$stamp-$n"; done
   cp "$SETTINGS" "$b"
   say "${DIM}  backup: $b${OFF}"
+  # Names sort chronologically; drop all but the newest 5. In node: head -n -N
+  # is GNU-only and macOS ships BSD head.
+  node -e "
+    const fs = require(\"fs\"), path = require(\"path\");
+    const p = process.argv[1], dir = path.dirname(p), base = path.basename(p) + \".probe-backup-\";
+    const all = fs.readdirSync(dir).filter((f) => f.startsWith(base)).sort();
+    for (const f of all.slice(0, -5)) fs.unlinkSync(path.join(dir, f));
+  " "$(topath "$SETTINGS")"
 }
+
+# Shared by install and uninstall: a hook command is ours only when it runs one
+# of probe-mode's own hook scripts. Matching any "probe-" substring used to
+# delete a user's own "my-probe-logger.sh". Only our entries leave a matcher
+# group; a group is dropped only once nothing else is left in it.
+OURS_JS='
+  const OURS = /[\\/]hooks[\\/]probe-(guard|promote|context|cleanup)\.mjs\b/;
+  const stripOurs = (s) => {
+    let n = 0;
+    for (const evt of Object.keys(s.hooks || {})) {
+      if (!Array.isArray(s.hooks[evt])) continue;
+      s.hooks[evt] = s.hooks[evt].map((group) => {
+        if (!group || !Array.isArray(group.hooks)) return group;
+        const kept = group.hooks.filter((h) => !OURS.test(String(h && h.command)));
+        n += group.hooks.length - kept.length;
+        return kept.length ? { ...group, hooks: kept } : null;
+      }).filter(Boolean);
+      if (!s.hooks[evt].length) delete s.hooks[evt];
+    }
+    if (s.hooks && !Object.keys(s.hooks).length) delete s.hooks;
+    return n;
+  };
+  const isOurStatusLine = (s) => Boolean(s.statusLine) && /probe-statusline\.mjs/.test(String(s.statusLine.command));
+'
 
 # ---------------------------------------------------------------- uninstall
 if [ "$UNINSTALL" = "1" ]; then
+  if [ "$OPENCODE_ONLY" = "1" ]; then
+    if [ -d "$OPENCODE_SHIM" ]; then rm -rf "$OPENCODE_SHIM"; ok "Removed $OPENCODE_SHIM. Restart OpenCode."
+    else say "No OpenCode shim at $OPENCODE_SHIM; nothing to remove."; fi
+    exit 0
+  fi
   say "Uninstalling probe-mode..."
   backup_settings
   if [ -f "$SETTINGS" ]; then
-    node -e '
+    node -e "$OURS_JS"'
       const fs = require("fs");
       const p = process.argv[1];
       const s = JSON.parse(fs.readFileSync(p, "utf8"));
-      let n = 0;
-      for (const evt of Object.keys(s.hooks || {})) {
-        const before = s.hooks[evt].length;
-        s.hooks[evt] = s.hooks[evt].filter((e) => !JSON.stringify(e).includes("probe-"));
-        n += before - s.hooks[evt].length;
-        if (!s.hooks[evt].length) delete s.hooks[evt];
-      }
-      if (s.hooks && !Object.keys(s.hooks).length) delete s.hooks;
-      if (s.statusLine && String(s.statusLine.command).includes("probe-statusline")) {
+      let n = stripOurs(s);
+      if (isOurStatusLine(s)) {
         delete s.statusLine;
         n++;
       }
@@ -122,7 +169,15 @@ if [ "$UNINSTALL" = "1" ]; then
   # Only removes it when empty: a pre-existing ~/.claude/shared of your own
   # must survive an uninstall.
   rmdir "$SHARED_DIR" 2>/dev/null || true
-  rm -rf "$SKILL_DIR" "$CLAUDE_DIR/probe-state"
+  rm -rf "$SKILL_DIR"
+  # probe-state/ is shared with a plugin install of probe-mode: deleting a locked
+  # session's state there would silently unlock it. Only --purge removes it.
+  if [ "$PURGE" = "1" ]; then
+    rm -rf "$CLAUDE_DIR/probe-state"
+    say "${DIM}  removed $CLAUDE_DIR/probe-state${OFF}"
+  elif [ -d "$CLAUDE_DIR/probe-state" ]; then
+    say "${DIM}  kept $CLAUDE_DIR/probe-state (session state; --purge removes it)${OFF}"
+  fi
   if [ -d "$OPENCODE_SHIM" ]; then
     rm -rf "$OPENCODE_SHIM"
     say "${DIM}  removed $OPENCODE_SHIM${OFF}"
@@ -147,23 +202,30 @@ ok "shared   -> $SHARED_DIR/*.mjs"
 # The shipped SKILL.md is written for plugin form. Rewrite the plugin-root
 # placeholder to the standalone location. Must be a native path: node given a
 # Git Bash path like /c/Users/... resolves it to C:\c\Users\... and fails.
-sed 's|${CLAUDE_PLUGIN_ROOT}/hooks|'"$(topath "$CLAUDE_DIR")"'/hooks|g' \
-  "$SRC/skills/probe/SKILL.md" > "$SKILL_DIR/SKILL.md"
+# Done in node, not sed: a "&" or "|" in the install path is special in a sed
+# replacement and silently corrupted every command in the skill.
+node -e '
+  const fs = require("fs");
+  const [src, dest, dir] = process.argv.slice(1);
+  const text = fs.readFileSync(src, "utf8").split("${CLAUDE_PLUGIN_ROOT}/hooks").join(dir + "/hooks");
+  fs.writeFileSync(dest, text);
+' "$(topath "$SRC/skills/probe/SKILL.md")" "$(topath "$SKILL_DIR/SKILL.md")" "$(topath "$CLAUDE_DIR")"
 ok "skill    -> $SKILL_DIR/SKILL.md"
 
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
 backup_settings
 
 # Prints KEPT_EXISTING on stdout if it declined to touch an existing statusLine.
-NOTE="$(node -e '
+NOTE="$(node -e "$OURS_JS"'
   const fs = require("fs");
   const [p, dir, refreshArg, defRefresh] = process.argv.slice(1);
   const s = JSON.parse(fs.readFileSync(p, "utf8"));
   const cmd = (n) => `node "${dir}/hooks/${n}.mjs"`;
 
+  stripOurs(s);
   s.hooks = s.hooks || {};
   const put = (evt, entry) => {
-    s.hooks[evt] = (s.hooks[evt] || []).filter((e) => !JSON.stringify(e).includes("probe-"));
+    s.hooks[evt] = s.hooks[evt] || [];
     s.hooks[evt].push(entry);
   };
   put("PreToolUse", {
@@ -188,7 +250,7 @@ NOTE="$(node -e '
   // re-install: only an explicit --refresh overwrites it.
   const DEFAULT_REFRESH = Number(defRefresh) || 10;
   const override = /^[0-9]+$/.test(refreshArg || "") ? Number(refreshArg) : null;
-  const foreign = s.statusLine && !String(s.statusLine.command).includes("probe-statusline");
+  const foreign = Boolean(s.statusLine) && !isOurStatusLine(s);
   let chosen = null;
   if (!foreign) {
     const prev = Number(s.statusLine && s.statusLine.refreshInterval);
