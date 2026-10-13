@@ -207,6 +207,7 @@ export default {
           ? [...rounds, { n, at: snap.at, ref: snap.ref, head: snap.head, branch: snap.branch }]
           : rounds;
         existing.sandbox = sandbox;
+        if (error) existing.snapshotError = error; else delete existing.snapshotError;
         existing.sessionID = sessionID;
         existing.host = 'opencode';
         writeState(stateDir, sessionID, existing);

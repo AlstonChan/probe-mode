@@ -102,9 +102,19 @@ const LOOK = {
 const look = LOOK[state.phase];
 if (!look) process.exit(0);
 
-const restore = state.snapshot
+// The current round's restore point, which is what `restore` defaults to.
+// Inlined rather than imported from shared/state.mjs: setup copies this file to a
+// stable path on its own, where no sibling modules exist.
+const rounds = Array.isArray(state.rounds) && state.rounds.length
+  ? state.rounds
+  : state.snapshot ? [{ n: 1 }] : [];
+const current = rounds.find((x) => x.n === (state.round || 1));
+const why = state.snapshotError ? 'snapshot failed' : 'not a git repo';
+const restore = current
   ? `⟲ ${CMD} restore`
-  : `${C.red}no snapshot (not a git repo)${C.reset}${C.dim}`;
+  : rounds.length
+    ? `${C.red}no snapshot this round (${why})${C.reset}${C.dim} · ⟲ ${CMD} restore --round ${rounds[rounds.length - 1].n}`
+    : `${C.red}no snapshot (${why})${C.reset}${C.dim}`;
 
 process.stdout.write(
   `${look.c}${C.bold}${look.label}${C.reset}` +

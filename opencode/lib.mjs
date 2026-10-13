@@ -53,7 +53,9 @@ export function statusText(state, { sessionId, refExists }) {
   if (rounds.length) {
     rounds.forEach((r) => lines.push(fmtRound(sessionId, r, refExists(roundRef(sessionId, r.n)) ? 'ok' : '!!')));
   } else {
-    lines.push('  none (not a git repository — restore is unavailable)');
+    lines.push(state.snapshotError
+      ? `  none (snapshot failed: ${state.snapshotError} — restore is unavailable)`
+      : '  none (not a git repository — restore is unavailable)');
   }
   if (state.undo) lines.push(`Undo point: ${String(state.undo.ref).slice(0, 12)} (${state.undo.at})`);
   lines.push('', phaseHint(state.phase));

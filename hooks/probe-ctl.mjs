@@ -225,6 +225,7 @@ Writes outside the sandbox are denied by hook until a plan is approved.`);
       ? [...rounds, { n, at: snap.at, ref: snap.ref, head: snap.head, branch: snap.branch }]
       : rounds;
     existing.sandbox = sandbox;
+    if (error) existing.snapshotError = error; else delete existing.snapshotError;
     writeState(sid, existing);
     console.log(`NEW RESEARCH ROUND ${n} (was: ${was}, now phase: probe)
 Sandbox (only writable path): ${sandbox}
@@ -260,7 +261,9 @@ Rounds:`);
   if (rounds.length) {
     rounds.forEach((r) => console.log(fmtRound(r, refExists(roundRef(sid, r.n)) ? 'ok' : '!!')));
   } else {
-    console.log('  none (not a git repository — restore is unavailable)');
+    console.log(existing.snapshotError
+      ? `  none (snapshot failed: ${existing.snapshotError} — restore is unavailable)`
+      : '  none (not a git repository — restore is unavailable)');
   }
   if (existing.undo) console.log(`Undo point: ${String(existing.undo.ref).slice(0, 12)} (${existing.undo.at})`);
   console.log(`\n${next}${statuslineNudge()}`);

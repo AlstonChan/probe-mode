@@ -13,11 +13,11 @@ import path from "node:path"
 import os from "node:os"
 import { Plugin, usePlugin } from "@opencode/plugin/tui"
 import { createSignal, onCleanup, Show } from "solid-js"
-import { readState } from "../shared/state.mjs"
+import { readState, normalizeRounds } from "../shared/state.mjs"
 
 const stateDir = () => process.env.PROBE_STATE_DIR || path.join(os.homedir(), ".probe-mode")
 
-type View = { phase: string; round: number; hasSnapshot: boolean }
+type View = { phase: string; round: number; restore: string }
 
 // `{r}` is where the round suffix lands (`probe r2: planning`), matching Claude
 // Code's statusline wording one-for-one.
@@ -46,7 +46,16 @@ function viewOf(sessionID?: string): View | undefined {
   if (!sessionID) return undefined
   const state = readState(stateDir(), sessionID)
   if (!state || !LOOK[state.phase]) return undefined
-  return { phase: state.phase, round: state.round || 1, hasSnapshot: Boolean(state.snapshot) }
+  // The current round's restore point is what `restore` defaults to.
+  const rounds = normalizeRounds(state)
+  const round = state.round || 1
+  const why = state.snapshotError ? "snapshot failed" : "not a git repo"
+  const restore = rounds.some((r) => r.n === round)
+    ? "⟲ /probe restore"
+    : rounds.length
+      ? `no snapshot this round (${why}) · ⟲ /probe restore --round ${rounds[rounds.length - 1].n}`
+      : `no snapshot (${why})`
+  return { phase: state.phase, round, restore }
 }
 
 export default Plugin.define({
@@ -91,13 +100,12 @@ function StatusRow(props: { sessionID?: string }) {
         const look = LOOK[current.phase]
         const round = current.round > 1 ? ` r${current.round}` : ""
         const label = look.label.replace("{r}", round)
-        const restore = current.hasSnapshot ? "⟲ /probe restore" : "no snapshot (not a git repo)"
         return (
           <text>
             <span style={{ fg: context.theme.text.feedback[look.tone].base }}>
               <b>{`⏸ ${label}`}</b>
             </span>
-            <span style={{ fg: context.theme.text.muted }}>{` · ${look.note} · ${restore}`}</span>
+            <span style={{ fg: context.theme.text.muted }}>{` · ${look.note} · ${current.restore}`}</span>
           </text>
         )
       }}
