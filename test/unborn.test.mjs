@@ -38,6 +38,7 @@ function freshUnbornRepo() {
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.email', 't@t']);
   git(['config', 'user.name', 't']);
+  git(['config', 'commit.gpgsign', 'false']);
   fs.writeFileSync(path.join(REPO, 'a.txt'), 'hi');
 }
 

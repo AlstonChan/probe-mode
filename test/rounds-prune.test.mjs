@@ -28,6 +28,7 @@ before(() => {
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.email', 't@t']);
   git(['config', 'user.name', 't']);
+  git(['config', 'commit.gpgsign', 'false']);
   git(['commit', '-q', '--allow-empty', '-m', 'base']);
   ctl('start');
   ctl('start');

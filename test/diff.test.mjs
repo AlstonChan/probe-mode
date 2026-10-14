@@ -26,6 +26,7 @@ before(() => {
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.email', 't@t']);
   git(['config', 'user.name', 't']);
+  git(['config', 'commit.gpgsign', 'false']);
   git(['config', 'core.autocrlf', 'false']);
   fs.writeFileSync(path.join(REPO, 'f.txt'), 'v1\n');
   git(['add', '-A']);

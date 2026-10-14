@@ -213,6 +213,7 @@ describe('snapshot refs go with their state', () => {
     git(repo, ['init', '-q']);
     git(repo, ['config', 'user.email', 't@t']);
     git(repo, ['config', 'user.name', 't']);
+    git(repo, ['config', 'commit.gpgsign', 'false']);
     git(repo, ['commit', '-q', '--allow-empty', '-m', 'base']);
     for (const r of ['old', 'old-r2', 'old-undo', 'old-other', 'live']) git(repo, ['update-ref', `refs/probe/${r}`, 'HEAD']);
 

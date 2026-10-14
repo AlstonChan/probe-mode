@@ -29,6 +29,7 @@ function repo(dir) {
   gitIn(dir, ['init', '-q', '-b', 'main']);
   gitIn(dir, ['config', 'user.email', 't@t']);
   gitIn(dir, ['config', 'user.name', 't']);
+  gitIn(dir, ['config', 'commit.gpgsign', 'false']);
   gitIn(dir, ['config', 'core.autocrlf', 'false']);
   fs.writeFileSync(path.join(dir, 'f.txt'), 'v1');
   gitIn(dir, ['add', '-A']);

@@ -39,6 +39,7 @@ before(() => {
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.email', 't@t']);
   git(['config', 'user.name', 't']);
+  git(['config', 'commit.gpgsign', 'false']);
   fs.writeFileSync(path.join(REPO, 'f.txt'), 'v1');
   git(['add', '-A']);
   git(['commit', '-qm', 'base']);
