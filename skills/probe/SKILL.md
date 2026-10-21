@@ -74,8 +74,11 @@ code — reading the project is fine, writing to it is not.
 - start implementing, even a one-line "obvious" fix
 - call `EnterPlanMode` on your own initiative
 
-A `PreToolUse` hook enforces all of this. If a write is denied, that is the design —
-do not route around it, do not ask to disable it.
+A `PreToolUse` hook enforces all of this. If a write is denied with "Blocked by probe
+mode", that is the design — do not route around it, do not ask to disable it. A sandbox
+write denied by some *other* hook (say, one that wants facts stated before a first write)
+is not probe mode: do what it asks and retry the same write. Never let sandbox evidence
+quietly go missing because its first write bounced.
 
 ## Proving a concept
 

@@ -265,6 +265,20 @@ bash, and treating it as a shell-writable root would permit `rm -rf` on your ent
 history. Reading plans from the shell (`cat`, `ls`) is fine. The rest of `~/.claude` —
 `settings.json`, `hooks/`, `skills/` — stays sealed in every phase.
 
+### Coexisting with other hooks
+
+Other `PreToolUse` hooks still run alongside probe mode, and the sandbox is just another
+directory to them. ECC's GateGuard, for one, denies the first write to every new file until
+the model states some facts — so every throwaway repro in the sandbox bounces once. The
+contract tells the model to answer and retry rather than give up, but it is cheaper to exempt
+the sandbox. The path lives outside the project, so the glob must be absolute:
+
+```json
+"env": {
+  "GATEGUARD_EXEMPT_GLOBS": "C:/Users/<you>/.claude/probe-state/*/sandbox/**"
+}
+```
+
 ## Rounds
 
 The loop is meant to repeat:

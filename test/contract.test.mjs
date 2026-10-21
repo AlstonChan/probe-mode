@@ -147,4 +147,13 @@ describe('both hosts carry the same contract', () => {
       assert.ok(HOST_TEXT[host].enforcement.length > 0);
     }
   });
+
+  test('the Claude contract scopes "do not work around it" to probe mode\'s own denials', () => {
+    // Another hook (e.g. ECC GateGuard) can deny a first sandbox write and allow the
+    // retry. A blanket "denied = expected" made the model drop that evidence instead.
+    const text = contractText({ phase: 'probe', round: 1, sandbox: base.sandbox, cmd: '/probe', host: 'claude' });
+    assert.match(text, /Blocked by probe mode/);
+    assert.match(text, /other hook/);
+    assert.match(text, /retry the same write/);
+  });
 });
