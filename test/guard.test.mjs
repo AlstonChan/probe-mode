@@ -8,7 +8,7 @@
 //
 // Nothing touches your real config: CLAUDE_CONFIG_DIR points at a temp dir.
 
-import { test, before, after, describe } from 'node:test';
+import { test, before, after, afterEach, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -164,6 +164,112 @@ describe('the plan directory', () => {
 
   test('allows reading plans from the shell', () => {
     assert.equal(sh(`cat ${PLANS}/existing.md`), 'allow');
+  });
+});
+
+describe('ExitPlanMode needs a plan written this planning phase', () => {
+  // Regression: the plan Write and ExitPlanMode went out in one parallel batch,
+  // another hook denied the Write, and an empty plan was approved and unlocked.
+  const MIN = 60 * 1000;
+  const made = [];
+  const plan = (name, body, ageMs = 0) => {
+    const file = path.join(PLANS, name);
+    fs.writeFileSync(file, body);
+    if (ageMs) { const t = new Date(Date.now() - ageMs); fs.utimesSync(file, t, t); }
+    made.push(file);
+    return file;
+  };
+  const planning = (extra = { planningAt: new Date(Date.now() - MIN).toISOString() }) =>
+    fs.writeFileSync(
+      path.join(CFG, 'probe-state', `${SID}.json`),
+      JSON.stringify({ phase: 'planning', sandbox: SANDBOX, cwd: PROJECT, ...extra }),
+    );
+  const exit = (toolInput = {}) => decide('ExitPlanMode', toolInput);
+
+  before(() => {
+    // The suite's existing.md predates every planning phase below.
+    const t = new Date(Date.now() - 10 * MIN);
+    fs.utimesSync(path.join(PLANS, 'existing.md'), t, t);
+  });
+  afterEach(() => { while (made.length) fs.rmSync(made.pop(), { force: true }); });
+
+  test('no plan written: denied', () => {
+    planning();
+    assert.equal(exit(), 'deny');
+  });
+
+  test('the deny says to write first and call ExitPlanMode in a separate turn', () => {
+    planning();
+    const reason = decideAt(GUARD, 'ExitPlanMode', {});
+    assert.match(reason, /no plan was written/);
+    assert.match(reason, /wait until that Write has succeeded/);
+    assert.match(reason, /separate turn/);
+  });
+
+  test('a plan written after planning began: allowed', () => {
+    planning();
+    plan('fresh.md', '# Plan\n\ndo it\n');
+    assert.equal(exit(), 'allow');
+  });
+
+  test('a stale plan from before planning began: denied', () => {
+    planning();
+    plan('old.md', '# Old plan\n', 2 * MIN);
+    assert.equal(exit(), 'deny');
+  });
+
+  test('an empty plan file: denied', () => {
+    planning();
+    plan('empty.md', '  \n');
+    assert.equal(exit(), 'deny');
+  });
+
+  test('a planning phase with no start time: denied', () => {
+    planning({});
+    plan('fresh.md', '# Plan\n');
+    assert.equal(exit(), 'deny');
+  });
+
+  test('planFilePath to the fresh plan: allowed', () => {
+    planning();
+    const file = plan('fresh.md', '# Plan\n');
+    assert.equal(exit({ plan: '# Plan\n', planFilePath: file }), 'allow');
+  });
+
+  test('planFilePath to a stale plan: denied, even with another fresh file around', () => {
+    planning();
+    const old = plan('old.md', '# Old\n', 2 * MIN);
+    plan('other-session.md', '# Someone else\n');
+    assert.equal(exit({ plan: '# Old\n', planFilePath: old }), 'deny');
+  });
+
+  test('planFilePath outside the plans directory: denied', () => {
+    planning();
+    const outside = path.join(SANDBOX, 'plan.md');
+    fs.writeFileSync(outside, '# Plan\n');
+    made.push(outside);
+    assert.equal(exit({ plan: '# Plan\n', planFilePath: outside }), 'deny');
+  });
+
+  test('plan text only: must match a fresh file', () => {
+    planning();
+    plan('fresh.md', '# Plan A\r\n');
+    assert.equal(exit({ plan: '# Plan A' }), 'allow');
+    assert.equal(exit({ plan: '# Plan B' }), 'deny');
+  });
+
+  for (const phase of ['probe', 'implementing', 'off']) {
+    test(`phase ${phase}: not the guard's call, allowed`, () => {
+      setPhase(phase);
+      assert.equal(exit(), 'allow');
+    });
+  }
+
+  test('denies when the plan check cannot load', () => {
+    planning();
+    // The isolated copy has no probe-plan.mjs next to it.
+    const reason = withIsolatedGuard(false, (guardPath) => decideAt(guardPath, 'ExitPlanMode', {}));
+    assert.match(reason, /could not load its plan check/);
   });
 });
 

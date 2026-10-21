@@ -40,7 +40,7 @@ function withIsolatedHooks(pluginLike, files, fn) {
   }
 }
 
-const HOOK_FILES = ['probe-ctl.mjs', 'probe-lib.mjs', 'probe-statusline.mjs'];
+const HOOK_FILES = ['probe-ctl.mjs', 'probe-lib.mjs', 'probe-plan.mjs', 'probe-statusline.mjs'];
 
 function freshCfg() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'probe-setup-cfg-'));

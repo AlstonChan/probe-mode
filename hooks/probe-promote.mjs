@@ -2,7 +2,9 @@
 // PostToolUse on ExitPlanMode. This event only fires when the tool SUCCEEDED,
 // which means the user approved the plan. That approval is the one and only
 // thing that unlocks writes in probe mode.
-import { readStdin, readState, writeState, normalizeRounds, CMD } from './probe-lib.mjs';
+import path from 'node:path';
+import { readStdin, readState, writeState, normalizeRounds, CMD, CONFIG_DIR } from './probe-lib.mjs';
+import { planCheck, PLAN_STEPS } from './probe-plan.mjs';
 
 // A failed or timed-out read yields {}, so readState(undefined) is null and we exit
 // below without promoting. That is the safe direction: a broken promote leaves writes
@@ -20,6 +22,18 @@ if (state && state.phase === 'probe') {
   );
 }
 if (!state || state.phase !== 'planning') process.exit(0);
+
+// The guard already refuses an ExitPlanMode with no plan behind it; this repeats
+// the check so an approval that slipped past it (guard not wired, payload lost)
+// still cannot unlock writes on an empty plan.
+const found = planCheck({ input, state, plansDir: path.join(CONFIG_DIR, 'plans'), cmd: CMD });
+if (!found.ok) {
+  process.stdout.write(
+    `Plan approved, but there is no plan behind it (${found.reason}), so writes stay BLOCKED ` +
+    `and probe mode is still planning. ${PLAN_STEPS}`
+  );
+  process.exit(0);
+}
 
 state.phase = 'implementing';
 state.approvedAt = new Date().toISOString();

@@ -229,7 +229,7 @@ NOTE="$(node -e "$OURS_JS"'
     s.hooks[evt].push(entry);
   };
   put("PreToolUse", {
-    matcher: "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+    matcher: "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|ExitPlanMode",
     hooks: [{ type: "command", command: cmd("probe-guard"), timeout: 20, statusMessage: "probe mode: checking" }],
   });
   put("PostToolUse", {

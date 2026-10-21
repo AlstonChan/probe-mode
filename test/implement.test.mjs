@@ -44,6 +44,20 @@ describe('probe-ctl implement', () => {
     assert.equal(phase(), 'planning');
   });
 
+  test('records when planning began, and a re-run restarts it', () => {
+    setPhase('probe');
+    const out = ctl('implement');
+    const first = JSON.parse(fs.readFileSync(statePath(), 'utf8')).planningAt;
+    assert.ok(Number.isFinite(Date.parse(first)), `planningAt: ${first}`);
+    // Only a plan written after this point is approvable; the message says how.
+    assert.match(out, /wait until that Write has succeeded.*separate turn.*same batch/s);
+    const until = Date.now() + 5;
+    while (Date.now() < until) { /* let the clock move */ }
+    ctl('implement');
+    const second = JSON.parse(fs.readFileSync(statePath(), 'utf8')).planningAt;
+    assert.ok(Date.parse(second) > Date.parse(first), `${second} > ${first}`);
+  });
+
   test('implementing is refused and stays unlocked', () => {
     setPhase('implementing');
     assert.match(ctl('implement'), /already unlocked.*Nothing was changed/s);

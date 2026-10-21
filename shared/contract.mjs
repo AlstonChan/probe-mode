@@ -14,7 +14,7 @@ export const HOST_TEXT = {
   claude: {
     enforcement: 'A PreToolUse hook enforces this. If a write is denied, that is expected; do not work around it.',
     research: '- Entering plan mode requires an EXPLICIT request from the user. Do not call EnterPlanMode on your own initiative, and do not ask for it repeatedly. Report findings and stop.',
-    planning: '- The user has asked for implementation. Write the plan to the plan file (that directory is writable), then call ExitPlanMode. Everything else stays blocked until they approve it.',
+    planning: '- The user has asked for implementation. Write the plan to the plan file (that directory is writable), wait until that Write has succeeded, then call ExitPlanMode in a separate turn — never in the same batch as the Write. Everything else stays blocked until they approve it.',
   },
   opencode: {
     enforcement: 'Session permission rules enforce this. If a write is denied, that is expected; do not work around it.',

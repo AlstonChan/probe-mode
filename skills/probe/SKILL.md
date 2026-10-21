@@ -13,6 +13,7 @@ Run the control command for `$ARGUMENTS`, then follow the contract below.
   round**: writes are blocked again and every earlier round stays restorable.
 - `status` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" status` and report it.
 - `implement` → `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" implement`, then call **EnterPlanMode** and write the plan.
+  Wait for the plan `Write` to succeed, then call `ExitPlanMode` in a separate turn.
   If it prints "Nothing was changed" instead (probe mode is off, or writes are already
   unlocked), relay that and stop — do not enter plan mode.
 - `restore` → run `node "${CLAUDE_PLUGIN_ROOT}/hooks/probe-ctl.mjs" restore`. This is a
@@ -97,6 +98,14 @@ Writes stay blocked until **both**: the user explicitly asks to implement, and t
 approve a plan through `ExitPlanMode`. A `PostToolUse` hook on `ExitPlanMode` is what
 lifts the block — approving the plan is the only thing that does. Leaving plan mode
 any other way leaves the project locked.
+
+The approval must have a plan behind it. Write the plan to the plan file, **wait for
+that Write's result and confirm it succeeded**, and only then call `ExitPlanMode`, in a
+separate turn. Never send the plan Write and `ExitPlanMode` in the same parallel batch:
+if the Write is denied or fails, the approval would have nothing to approve. The guard
+denies `ExitPlanMode` until a plan written after `implement` exists, and the unlock hook
+checks again, so a plan-less approval leaves writes blocked. If it is denied, write (or
+fix) the plan and call `ExitPlanMode` again.
 
 `/probe restore` rolls the working tree back to the start of the current round
 (git snapshot; the current state is snapshotted first as an undo point). It previews

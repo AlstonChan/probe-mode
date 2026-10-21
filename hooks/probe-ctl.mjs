@@ -17,10 +17,11 @@ import {
 import { checkReport, loadPolicy } from '../shared/shell.mjs';
 import { exportRound } from '../shared/export.mjs';
 import { implementRefusal } from '../shared/contract.mjs';
+import { PLAN_STEPS } from './probe-plan.mjs';
 
 const PHASE_HINT = {
   probe: `Investigating. Say \`${CMD} implement\` when you want a plan.`,
-  planning: 'Plan not approved yet. Writes stay blocked until ExitPlanMode is approved.',
+  planning: 'Plan not approved yet. Writes stay blocked until a plan written this round is approved via ExitPlanMode.',
   implementing: `Writes unlocked. \`${CMD} <question>\` starts another research round; \`${CMD} restore\` rewinds.`,
   off: `Disarmed. \`${CMD} <question>\` arms a new round.`,
 };
@@ -243,8 +244,11 @@ Earlier restore points are intact: ${rounds.map((r) => `round ${r.n}`).join(', '
   const refusal = implementRefusal(existing.phase, CMD);
   if (refusal) { console.log(refusal); process.exit(0); }
   existing.phase = 'planning';
+  // Only a plan file written after this moment can be approved (probe-plan.mjs),
+  // so a stale plan from an earlier round never unlocks. Re-running restarts it.
+  existing.planningAt = new Date().toISOString();
   writeState(sid, existing);
-  console.log('Phase -> planning. Writes are STILL blocked. Call EnterPlanMode, write the plan, then ExitPlanMode for approval.');
+  console.log(`Phase -> planning. Writes are STILL blocked. Call EnterPlanMode, then:\n${PLAN_STEPS}\nExitPlanMode is refused until a plan written after this point exists.`);
 } else if (cmd === 'restore') {
   if (!existing) { console.log('Probe mode is not active for this session; no snapshot to restore.'); process.exit(0); }
   console.log(restore(existing, argv.includes('--force')));

@@ -195,6 +195,23 @@ try {
     `Implementation requires an explicit request from the user, then ${CMD} implement, ` +
     `then an approved plan. Nothing outside the sandbox may change before that.`;
 
+  // ---------- ExitPlanMode ----------
+  // Asking for approval with no plan behind it is refused here, before the user
+  // ever sees the prompt (see probe-plan.mjs). probe-promote.mjs repeats the
+  // check, so an approval that gets past this still unlocks nothing.
+  if (tool === 'ExitPlanMode') {
+    if (phase !== 'planning') pass();
+    let plan;
+    try {
+      plan = await import('./probe-plan.mjs');
+    } catch (err) {
+      deny(`probe-mode guard could not load its plan check (${err && err.message}); denying to stay safe. Run ${CMD} status.`);
+    }
+    const found = plan.planCheck({ input, state, plansDir: PLANS_DIR, cmd: CMD });
+    if (found.ok) pass();
+    deny(`Blocked by ${phaseWord}: there is no plan to approve — ${found.reason}.\n${plan.PLAN_STEPS}`);
+  }
+
   // ---------- file tools ----------
   if (tool === 'Edit' || tool === 'Write' || tool === 'MultiEdit' || tool === 'NotebookEdit') {
     const target = ti.file_path || ti.notebook_path;

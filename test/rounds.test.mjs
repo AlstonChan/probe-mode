@@ -209,7 +209,7 @@ describe('command name resolves from install layout', () => {
   // state persists across calls to the same SID otherwise.
   const runIsolated = (pluginLike, extraEnv = {}) => {
     freshRepo();
-    return withIsolatedHooks(pluginLike, ['probe-ctl.mjs', 'probe-lib.mjs'], (ctlPath) =>
+    return withIsolatedHooks(pluginLike, ['probe-ctl.mjs', 'probe-lib.mjs', 'probe-plan.mjs'], (ctlPath) =>
       execFileSync(process.execPath, [ctlPath, 'start'], {
         cwd: REPO, encoding: 'utf8',
         env: { ...process.env, CLAUDE_CONFIG_DIR: CFG, CLAUDE_CODE_SESSION_ID: SID, ...extraEnv },

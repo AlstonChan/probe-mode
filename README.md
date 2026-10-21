@@ -41,6 +41,11 @@ This is not a prompt asking Claude nicely. Two mechanics do the work:
 - **`PostToolUse` on `ExitPlanMode` only fires when the tool succeeded** — i.e. when
   *you* approved the plan. That's the only thing that unlocks writes. Leaving plan mode
   any other way keeps the project locked.
+- **An approval needs a plan behind it.** `implement` records when planning began; the
+  guard denies `ExitPlanMode` until a plan file written after that exists, and the
+  promote hook checks again before unlocking. A plan `Write` sent in the same batch as
+  `ExitPlanMode` (and denied by some other hook) can no longer unlock on an empty plan,
+  and neither can a stale plan from an earlier round.
 
 A `UserPromptSubmit` hook re-injects the contract every turn, so it survives compaction.
 
@@ -415,6 +420,7 @@ deny cases are the security contract.
 hooks/hooks.json                 hook registration (plugin form)
 hooks/probe-guard.mjs            PreToolUse — the enforcement
 hooks/probe-promote.mjs          PostToolUse on ExitPlanMode — the only unlock
+hooks/probe-plan.mjs             was a plan written this planning phase? (guard + promote)
 hooks/probe-context.mjs          UserPromptSubmit — re-injects the contract
 hooks/probe-cleanup.mjs          SessionEnd — age-prunes only; never unlocks
 hooks/probe-ctl.mjs              every subcommand; rounds & snapshots
@@ -447,7 +453,8 @@ install.sh                       standalone installer / uninstaller (--opencode 
 `hooks/probe-lib.mjs` is shared by everything except `probe-guard.mjs`, which has no
 static imports: one that failed to load would crash it before its fail-closed handlers
 exist, and Claude Code runs the tool when a PreToolUse hook exits non-zero. It loads
-`shared/shell.mjs` with a dynamic import inside a `try`, so a broken module denies.
+`shared/shell.mjs` and `hooks/probe-plan.mjs` with dynamic imports inside a `try`, so a
+broken module denies.
 Both hosts run that one analysis, and `test/rules.test.mjs` still checks the real guard
 and the module reach the same verdict.
 
