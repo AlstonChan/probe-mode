@@ -1,6 +1,6 @@
 {
   "name": "opencode-probe-mode",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
   "description": "Research-only mode for OpenCode: explores and benchmarks freely; nothing touches the project until you approve a plan.",
