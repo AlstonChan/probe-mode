@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const SID = 'setup-test-session';
-const STATUSLINE = path.join(import.meta.dirname, '..', 'hooks', 'probe-statusline.mjs');
+const STATUSLINE = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-statusline.mjs');
 
 // This repo checkout always has .claude-plugin/ next to hooks/ (it's the plugin's own
 // manifest), so running the real files in place always looks like a plugin install.
@@ -26,12 +26,12 @@ function withIsolatedHooks(pluginLike, files, fn) {
   const hooksDir = path.join(dir, 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
   for (const f of files) {
-    fs.copyFileSync(path.join(import.meta.dirname, '..', 'hooks', f), path.join(hooksDir, f));
+    fs.copyFileSync(path.join(import.meta.dirname, '..', '..', 'hooks', f), path.join(hooksDir, f));
   }
   // probe-ctl/probe-lib import ../shared/*, which resolves to <dir>/shared in the
   // installed layout (install.sh copies it there too). Copy it so the isolated
   // hooks resolve exactly as they do in a real install.
-  fs.cpSync(path.join(import.meta.dirname, '..', 'shared'), path.join(dir, 'shared'), { recursive: true });
+  fs.cpSync(path.join(import.meta.dirname, '..', '..', 'shared'), path.join(dir, 'shared'), { recursive: true });
   if (pluginLike) fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
   try {
     return fn(path.join(hooksDir, 'probe-ctl.mjs'));
@@ -330,7 +330,7 @@ describe('setup: refreshInterval', () => {
 describe('install.sh keeps the same interval contract', () => {
   // Static assertions: they run everywhere, with no bash required, and they are the
   // part that actually stops the default being regressed in the second installer.
-  const SH = fs.readFileSync(path.join(import.meta.dirname, '..', 'install.sh'), 'utf8');
+  const SH = fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'install.sh'), 'utf8');
 
   test('declares a default of at least 10', () => {
     const m = SH.match(/^REFRESH_DEFAULT=(\d+)$/m);

@@ -9,10 +9,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { checkReport } from '../shared/shell.mjs';
-import { parseInvocation } from '../opencode/lib.mjs';
+import { checkReport } from '../../shared/shell.mjs';
+import { parseInvocation } from '../../opencode/lib.mjs';
 
-const CTL = path.join(import.meta.dirname, '..', 'hooks', 'probe-ctl.mjs');
+const CTL = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-ctl.mjs');
 const SID = 'check-test';
 let CFG, PROJECT, SANDBOX;
 

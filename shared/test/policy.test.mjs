@@ -9,9 +9,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { loadPolicy, matchPolicy, analyzeCommand } from '../shared/shell.mjs';
+import { loadPolicy, matchPolicy, analyzeCommand } from '../../shared/shell.mjs';
 
-const HOOKS = path.join(import.meta.dirname, '..', 'hooks');
+const HOOKS = path.join(import.meta.dirname, '..', '..', 'hooks');
 const SID = 'policy-test';
 let CFG, PROJECT, SANDBOX;
 

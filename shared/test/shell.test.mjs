@@ -13,9 +13,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { analyzeCommand, analyzeSegments, describeCommand } from '../shared/shell.mjs';
+import { analyzeCommand, analyzeSegments, describeCommand } from '../../shared/shell.mjs';
 
-const GUARD = path.join(import.meta.dirname, '..', 'hooks', 'probe-guard.mjs');
+const GUARD = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-guard.mjs');
 const SID = 'shell-test';
 let CFG, SANDBOX, PROJECT;
 

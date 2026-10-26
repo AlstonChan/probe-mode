@@ -10,9 +10,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { readDenials, denialSummary, logDenial } from '../shared/state.mjs';
+import { readDenials, denialSummary, logDenial } from '../../shared/state.mjs';
 
-const HOOKS = path.join(import.meta.dirname, '..', 'hooks');
+const HOOKS = path.join(import.meta.dirname, '..', '..', 'hooks');
 const SID = 'denials-test';
 let CFG, PROJECT, SANDBOX, STATE_DIR;
 

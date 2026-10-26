@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const CTL = path.join(import.meta.dirname, '..', 'hooks', 'probe-ctl.mjs');
+const CTL = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-ctl.mjs');
 const SID = 'rounds-test-session';
 
 let CFG, REPO;
@@ -38,12 +38,12 @@ function withIsolatedHooks(pluginLike, files, fn) {
   const hooksDir = path.join(dir, 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
   for (const f of files) {
-    fs.copyFileSync(path.join(import.meta.dirname, '..', 'hooks', f), path.join(hooksDir, f));
+    fs.copyFileSync(path.join(import.meta.dirname, '..', '..', 'hooks', f), path.join(hooksDir, f));
   }
   // probe-ctl/probe-lib import ../shared/*, which resolves to <dir>/shared in the
   // installed layout (install.sh copies it there too). Copy it so the isolated
   // hooks resolve exactly as they do in a real install.
-  fs.cpSync(path.join(import.meta.dirname, '..', 'shared'), path.join(dir, 'shared'), { recursive: true });
+  fs.cpSync(path.join(import.meta.dirname, '..', '..', 'shared'), path.join(dir, 'shared'), { recursive: true });
   if (pluginLike) fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
   try {
     return fn(path.join(hooksDir, 'probe-ctl.mjs'));

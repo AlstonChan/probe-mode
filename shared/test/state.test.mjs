@@ -10,9 +10,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { writeState, readState, inspectState } from '../shared/state.mjs';
+import { writeState, readState, inspectState } from '../../shared/state.mjs';
 
-const HOOKS = path.join(import.meta.dirname, '..', 'hooks');
+const HOOKS = path.join(import.meta.dirname, '..', '..', 'hooks');
 const SID = 'state-test-session';
 let ROOT, CFG, REPO;
 

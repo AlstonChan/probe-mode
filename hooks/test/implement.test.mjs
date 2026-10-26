@@ -10,9 +10,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { implementRefusal } from '../shared/contract.mjs';
+import { implementRefusal } from '../../shared/contract.mjs';
 
-const CTL = path.join(import.meta.dirname, '..', 'hooks', 'probe-ctl.mjs');
+const CTL = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-ctl.mjs');
 const SID = 'implement-test';
 let CFG, PROJECT;
 

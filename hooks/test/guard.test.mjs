@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const GUARD = path.join(import.meta.dirname, '..', 'hooks', 'probe-guard.mjs');
+const GUARD = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-guard.mjs');
 const SID = 'test-session';
 
 let CFG, SANDBOX, PLANS, PROJECT;

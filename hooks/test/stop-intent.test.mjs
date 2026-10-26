@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const HOOKS = path.join(import.meta.dirname, '..', 'hooks');
+const HOOKS = path.join(import.meta.dirname, '..', '..', 'hooks');
 const SID = 'stop-intent-session';
 const STOP_CMD = `node "${path.join(HOOKS, 'probe-ctl.mjs').split(path.sep).join('/')}" stop`;
 

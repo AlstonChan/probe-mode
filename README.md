@@ -328,10 +328,12 @@ status line keeps saying so, because restore cannot save you there.
 node --test
 ```
 
-477 tests across 24 files. (Run it as bare `node --test` from the repo root, or
-`node --test test/*.test.mjs` — Node's auto-discovery finds `test/*.test.mjs`.
-`node --test test/` does **not** work on Node 24: it treats the argument as a module
-entry point rather than a directory.) `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
+491 tests across 24 files, kept next to the code they cover (`hooks/test/`,
+`shared/test/`, `opencode/test/`), with the cross-host suites in `test/`. (Run it as
+bare `node --test` from the repo root — Node's auto-discovery finds every
+`*.test.mjs`. Pass file paths for a single suite, e.g.
+`node --test hooks/test/guard.test.mjs`. `node --test <dir>` does **not** work on
+Node 24: it treats the argument as a module entry point rather than a directory.) `guard.test.mjs` covers the allow/deny matrix — sandbox and plan-directory
 writes, config sealing, path traversal, the shell deny-list, shell parsing, fail-closed
 behavior, and that deny messages name the right command for the install layout.
 `hooks-stdin.test.mjs` is the leak regression: every hook must exit when Claude Code
@@ -447,20 +449,25 @@ shared/contract.mjs              the research contract, incl. the host-specific 
 shared/rules.mjs                 OpenCode session rules, shell fallback patterns, messages
 shared/shell.mjs                 shell analysis, check, allow/deny patterns (both hosts)
 shared/export.mjs                the export subcommand
-opencode/index.mjs               OpenCode server plugin: agent, commands, hooks, approval
+opencode/index.mjs               OpenCode server plugin entry: builds the environment, wires the pieces
+opencode/session.mjs             session ancestry, rule application, the one unlock
+opencode/lifecycle.mjs           arming and per-round snapshots
+opencode/commands.mjs            the /probe command and its subcommands
+opencode/agent.mjs               the `probe` agent
+opencode/context-hook.mjs        contract injection on every model request
+opencode/permission-hook.mjs     edit and shell permission decisions
+opencode/tool-hook.mjs           blocked-call message rewrite, `question` approval
+opencode/approval-events.mjs     permission-dialog approval
 opencode/lib.mjs                 command parsing, status text, prompts (pure, unit-tested)
 opencode/tui.tsx                 OpenCode footer status row (invisible when off)
 opencode/package.json            plugin entry points
 LICENSE                          MIT
-test/guard.test.mjs              guard allow/deny matrix (node --test)
-test/hooks-stdin.test.mjs        every hook must exit on a never-closed stdin pipe
-test/cleanup.test.mjs            phase-aware pruning + the liveness heartbeat
-test/rounds.test.mjs             rounds, snapshots, restore targeting
-test/setup.test.mjs              setup subcommand, settings.json merge, status nudge
+hooks/test/*.test.mjs            Claude host: guard matrix, stdin leak, cleanup, rounds, setup, ...
+shared/test/*.test.mjs           shared core: shell analysis, state, policy, denials
+opencode/test/*.test.mjs         OpenCode host: parsing, prompts, lifecycle, approval
 test/rules.test.mjs              cross-host parity: real guard vs shared analysis, rule shapes
 test/contract.test.mjs           Claude hook output == shared contract (host lines only)
-test/opencode.test.mjs           parsing, prompts, lifecycle, message rewrite, retention
-test/*.test.mjs                  one suite per behaviour (see Testing)
+test/unborn.test.mjs, install.test.mjs   suites spanning both hosts / the installer
 install.sh                       standalone installer / uninstaller (--opencode for OpenCode)
 ```
 

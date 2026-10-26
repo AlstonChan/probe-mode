@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const HOOKS = path.join(import.meta.dirname, '..', 'hooks');
+const HOOKS = path.join(import.meta.dirname, '..', '..', 'hooks');
 const CLEANUP = path.join(HOOKS, 'probe-cleanup.mjs');
 const CONTEXT = path.join(HOOKS, 'probe-context.mjs');
 

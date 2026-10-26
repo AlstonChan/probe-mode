@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const HOOKS_DIR = path.join(import.meta.dirname, '..', 'hooks');
+const HOOKS_DIR = path.join(import.meta.dirname, '..', '..', 'hooks');
 const SID = 'stdin-test-session';
 
 // Anything still alive when the file finishes gets killed, so a FAILING test can

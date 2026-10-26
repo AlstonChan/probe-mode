@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const CTL = path.join(import.meta.dirname, '..', 'hooks', 'probe-ctl.mjs');
+const CTL = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-ctl.mjs');
 const SID = 'export-test';
 let CFG, REPO;
 

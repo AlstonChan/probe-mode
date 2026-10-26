@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const PROMOTE = path.join(import.meta.dirname, '..', 'hooks', 'probe-promote.mjs');
+const PROMOTE = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-promote.mjs');
 const SID = 'promote-test-session';
 const MIN = 60 * 1000;
 
