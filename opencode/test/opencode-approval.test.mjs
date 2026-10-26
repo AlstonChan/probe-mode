@@ -41,7 +41,7 @@ before(async () => {
     }
   }
 
-  const { default: plugin } = await import('../opencode/index.mjs');
+  const { default: plugin } = await import('../../opencode/index.mjs');
   await plugin.setup({
     location: { directory: REPO },
     session: {
@@ -136,7 +136,7 @@ describe('shell commands the coarse fallback parks at ask', () => {
     const ev = { sessionID: 'parent', action: 'shell', effect: 'ask', resources: ['git tag v9'] };
     await evaluate(ev);
     assert.equal(ev.effect, 'deny');
-    const { readDenials } = await import('../shared/state.mjs');
+    const { readDenials } = await import('../../shared/state.mjs');
     assert.ok(readDenials(STATE_DIR, 'parent').some((d) => d.what === 'git tag v9'));
   });
 });

@@ -16,12 +16,12 @@ import path from 'node:path';
 import {
   CMD, SUBCOMMANDS, parseInvocation, statusText, phaseHint, armPrompt, implementPrompt,
   approvePrompt, restoreRelay, stopPrompt, RESTORE_WORDING, sandboxFor, deniedMessageFor,
-} from '../opencode/lib.mjs';
-import { sessionRules, matchEffect } from '../shared/rules.mjs';
+} from '../../opencode/lib.mjs';
+import { sessionRules, matchEffect } from '../../shared/rules.mjs';
 import {
   readState, writeState, normalizeRounds, roundRef, undoRef, heartbeat,
   pruneStateDir, LOCKED_PRUNE_DAYS, UNLOCKED_PRUNE_DAYS, DAY,
-} from '../shared/state.mjs';
+} from '../../shared/state.mjs';
 
 const SID = 'oc-session';
 const LOCATION = path.join('C:', path.sep, 'project');
