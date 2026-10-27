@@ -27,17 +27,17 @@ const LOOK: Record<
 > = {
   probe: {
     label: "probe{r} mode on",
-    note: "research only · writes blocked outside sandbox",
+    note: "research only",
     tone: "warning",
   },
   planning: {
     label: "probe{r}: planning",
-    note: "awaiting plan approval · writes still blocked",
+    note: "awaiting approval",
     tone: "info",
   },
   implementing: {
     label: "probe{r}: unlocked",
-    note: "plan approved · writes allowed",
+    note: "writes allowed",
     tone: "success",
   },
 }
@@ -49,12 +49,9 @@ function viewOf(sessionID?: string): View | undefined {
   // The current round's restore point is what `restore` defaults to.
   const rounds = normalizeRounds(state)
   const round = state.round || 1
-  const why = state.snapshotError ? "snapshot failed" : "not a git repo"
   const restore = rounds.some((r) => r.n === round)
-    ? "⟲ /probe restore"
-    : rounds.length
-      ? `no snapshot this round (${why}) · ⟲ /probe restore --round ${rounds[rounds.length - 1].n}`
-      : `no snapshot (${why})`
+    ? "\u27f2 /probe restore"
+    : "no restore point"
   return { phase: state.phase, round, restore }
 }
 
