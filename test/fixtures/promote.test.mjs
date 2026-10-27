@@ -106,6 +106,11 @@ test('replay throws when fixture has no setup state', async () => {
   } finally { h.close(); }
 });
 
+test('replayClaude rejects the promote hook', () => {
+  const fx = { hook: 'promote', input: { session_id: 'z' }, setup: { phase: 'probe' } };
+  assert.throws(() => replayClaude(fx, { configDir: mk('r2') }), /unsupported hook: promote/);
+});
+
 test('replayOpencode rejects unsupported hooks', async () => {
   const h = await createOpencodeHarness();
   try {

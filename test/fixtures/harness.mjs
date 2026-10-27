@@ -6,7 +6,7 @@ import path from 'node:path';
 const REPO = path.join(import.meta.dirname, '..', '..');
 const DEFAULT_ROOT = import.meta.dirname;
 const REQUIRED = ['host', 'hostVersion', 'capturedAt', 'scenario', 'hook', 'input', 'expected'];
-const CLAUDE_HOOKS = { guard: 'probe-guard.mjs', promote: 'probe-promote.mjs' };
+const CLAUDE_HOOKS = { guard: 'probe-guard.mjs' };
 
 export function loadFixture(host, name, root = DEFAULT_ROOT) {
   const file = path.join(root, host, `${name}.json`);
