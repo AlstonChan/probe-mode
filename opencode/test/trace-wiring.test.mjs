@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-let ROOT, STATE_DIR, REPO, run, evaluate;
+let ROOT, STATE_DIR, REPO, run, evaluate, failPrompt = false;
 
 before(async () => {
   ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-oc-trace-'));
@@ -22,7 +22,7 @@ before(async () => {
       get: async () => ({}),
       update: async () => {},
       switchAgent: async () => {},
-      prompt: async () => {},
+      prompt: async () => { if (failPrompt) throw new Error('boom'); },
       hook: async () => {},
     },
     agent: { transform: async () => {} },
@@ -53,4 +53,31 @@ test('permission.evaluate logs one entry for an out-of-sandbox edit', async () =
   assert.equal(e.hook, 'permission.evaluate');
   assert.equal(e.sessionId, 's1');
   assert.equal(e.decision, 'deny');
+});
+
+test('/probe subcommands log the phase before and after', async () => {
+  await run({ sessionID: 's9', prompt: { text: 'is X faster?' } });
+  const file = path.join(STATE_DIR, 'trace.jsonl');
+  fs.rmSync(file, { force: true });
+  await run({ sessionID: 's9', prompt: { text: 'implement' } });
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const e = lines.find((l) => l.hook === 'command');
+  assert.ok(e, 'a command entry was written');
+  assert.equal(e.host, 'opencode');
+  assert.equal(e.sessionId, 's9');
+  assert.equal(e.input.sub, 'implement');
+  assert.equal(e.input.phaseBefore, 'probe');
+  assert.equal(e.decision.phaseAfter, 'planning');
+});
+
+test('a failing command is logged with its error and still rethrown', async () => {
+  await run({ sessionID: 's10', prompt: { text: 'is X faster?' } });
+  const file = path.join(STATE_DIR, 'trace.jsonl');
+  fs.rmSync(file, { force: true });
+  failPrompt = true;
+  try {
+    await assert.rejects(run({ sessionID: 's10', prompt: { text: 'status' } }));
+  } finally { failPrompt = false; }
+  const e = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((l) => l.hook === 'command');
+  assert.match(e.decision.error, /boom/);
 });

@@ -10,11 +10,13 @@ import {
   restoreRelay, stopPrompt, RESTORE_WORDING, PRUNE_WORDING,
 } from './lib.mjs';
 import { plansFileFor } from './lifecycle.mjs';
+import { trace } from '../shared/trace.mjs';
 
 export async function registerCommands(env, session, lifecycle) {
   const { ctx, stateDir, locationDir, rootsFor } = env;
 
-  const runCommand = async ({ sessionID, prompt, delivery }) => {
+  const runCommand = async (invocation) => {
+    const { sessionID, prompt, delivery } = invocation;
     const { sub, args, question, rest } = parseInvocation(prompt?.text);
     const armed = await session.armedFor(sessionID);
     const owner = armed?.owner ?? sessionID;
@@ -105,12 +107,35 @@ export async function registerCommands(env, session, lifecycle) {
     }
   };
 
+  // Records each /probe call with the phase before and after, so a command that
+  // did not take effect can be found in the trace. Never changes the outcome.
+  const tracedCommand = async (invocation) => {
+    const { sub } = parseInvocation(invocation.prompt?.text);
+    const phaseOf = async () => (await session.armedFor(invocation.sessionID))?.state.phase ?? null;
+    const phaseBefore = await phaseOf().catch(() => null);
+    const log = async (decision) => trace(stateDir, {
+      host: 'opencode',
+      hook: 'command',
+      sessionId: invocation.sessionID ?? null,
+      input: { sub, phaseBefore },
+      decision,
+    });
+    try {
+      const result = await runCommand(invocation);
+      await log({ phaseAfter: await phaseOf().catch(() => null) });
+      return result;
+    } catch (err) {
+      await log({ error: String(err?.message ?? err) });
+      throw err;
+    }
+  };
+
   await ctx.command.transform((editor) => {
     editor.add({
       name: 'probe',
       description:
         'research-only mode: [question | status | implement | approve | restore [--force] | stop | check <cmd> | diff [--round N] [--patch] | rounds [prune [--force]] | export]',
-      execute: runCommand,
+      execute: tracedCommand,
     });
   });
 }
