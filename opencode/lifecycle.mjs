@@ -64,5 +64,25 @@ export function createLifecycle(env, session) {
     return armPrompt({ state, question, snapshotLine });
   };
 
-  return { arm };
+  // Selecting the Probe agent (Shift+Tab) arms nothing by itself, so the
+  // first model request on that agent arms it here. One in-flight promise per
+  // session keeps concurrent requests from arming twice.
+  const inflight = new Map();
+  const ensureArmed = (sessionID) => {
+    if (inflight.has(sessionID)) return inflight.get(sessionID);
+    const run = (async () => {
+      try {
+        if (!(await session.armedFor(sessionID))) await arm(sessionID, '');
+        return true;
+      } catch {
+        return false;
+      } finally {
+        inflight.delete(sessionID);
+      }
+    })();
+    inflight.set(sessionID, run);
+    return run;
+  };
+
+  return { arm, ensureArmed };
 }

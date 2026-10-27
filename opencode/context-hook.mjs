@@ -5,10 +5,11 @@ import { statePath } from '../shared/state.mjs';
 import { contractText } from '../shared/contract.mjs';
 import { CMD } from './lib.mjs';
 
-export async function registerContextHook(env, session) {
+export async function registerContextHook(env, session, lifecycle) {
   const { ctx, stateDir } = env;
 
   await ctx.session.hook('context', async (event) => {
+    if (event.agent === 'probe') await lifecycle.ensureArmed(event.sessionID);
     const armed = await session.armedFor(event.sessionID);
     if (!armed || armed.state.phase === 'off') return;
     const { owner, state } = armed;

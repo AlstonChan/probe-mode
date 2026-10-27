@@ -84,7 +84,22 @@ export async function registerPermissionHook(env, session) {
 
   await ctx.permission.hook('evaluate', async (event) => {
     const armed = await session.armedFor(event.sessionID);
-    if (!armed) return;
+    if (!armed) {
+      // The Probe agent with no armed state (arming failed or has not run
+      // yet) must still block writes: fail closed.
+      if (event.agent === 'probe' && (event.action === 'edit' || event.action === 'shell')) {
+        event.effect = 'deny';
+        event.message = `Probe mode is not armed for this session, so writes are blocked. Run ${CMD} to arm it.`;
+        trace(stateDir, {
+          host: 'opencode',
+          hook: 'permission.evaluate',
+          sessionId: event.sessionID ?? null,
+          input: { sessionID: event.sessionID, agent: event.agent, action: event.action, resources: event.resources },
+          decision: 'deny',
+        });
+      }
+      return;
+    }
     const phase = armed.state.phase;
     if (phase === 'off' || phase === 'implementing') return;
     if (event.action !== 'edit' && event.action !== 'shell') return;

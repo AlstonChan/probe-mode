@@ -88,7 +88,7 @@ export default {
 
     await registerAgent(env);
     await registerCommands(env, session, lifecycle);
-    await registerContextHook(env, session);
+    await registerContextHook(env, session, lifecycle);
     await registerPermissionHook(env, session);
     await registerToolHook(env, session);
     return watchApprovals(env, session);
