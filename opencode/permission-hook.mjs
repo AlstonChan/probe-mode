@@ -4,6 +4,7 @@ import { logDenial } from '../shared/state.mjs';
 import { sessionRules, matchEffect, shellDenied, shellDenyMessage, approvalAskMessage } from '../shared/rules.mjs';
 import { analyzeSegments, loadPolicy, matchPolicy } from '../shared/shell.mjs';
 import { CMD } from './lib.mjs';
+import { trace } from '../shared/trace.mjs';
 
 export async function registerPermissionHook(env, session) {
   const { ctx, stateDir, plansDir, locationDir, extraRoots, rootsFor } = env;
@@ -86,7 +87,16 @@ export async function registerPermissionHook(env, session) {
     if (!armed) return;
     const phase = armed.state.phase;
     if (phase === 'off' || phase === 'implementing') return;
-    if (event.action === 'edit') return evaluateEdit(event, armed);
-    if (event.action === 'shell') return evaluateShell(event, armed);
+    if (event.action !== 'edit' && event.action !== 'shell') return;
+    const input = { sessionID: event.sessionID, action: event.action, resources: event.resources, effect: event.effect };
+    if (event.action === 'edit') evaluateEdit(event, armed);
+    else evaluateShell(event, armed);
+    trace(stateDir, {
+      host: 'opencode',
+      hook: 'permission.evaluate',
+      sessionId: event.sessionID ?? null,
+      input,
+      decision: event.effect ?? null,
+    });
   });
 }

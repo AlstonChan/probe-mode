@@ -28,7 +28,54 @@ const isPlugin = fs.existsSync(path.join(path.dirname(import.meta.dirname), '.cl
   || Boolean(process.env.CLAUDE_PLUGIN_ROOT);
 const CMD = isPlugin ? '/probe-mode:probe' : '/probe';
 
+// Dev feedback loop: appends one JSON line to <STATE_DIR>/trace.jsonl when
+// PROBE_RECORD is set. Inlined, NOT imported from shared/trace.mjs, for the same
+// reason as everything else in this file (an import that fails to load would fail
+// open). Keep in sync with shared/trace.mjs. Never throws, never alters a decision.
+const TRACE_MAX = 2000;
+const traceClip = (v, seen) => {
+  if (typeof v === 'string') return v.length > TRACE_MAX ? v.slice(0, TRACE_MAX) + '…[truncated]' : v;
+  if (v === null || typeof v !== 'object') return v;
+  if (seen.has(v)) throw new Error('circular');
+  seen.add(v);
+  const out = Array.isArray(v) ? v.map((x) => traceClip(x, seen)) : {};
+  if (!Array.isArray(v)) for (const k of Object.keys(v)) out[k] = traceClip(v[k], seen);
+  seen.delete(v);
+  return out;
+};
+const trace = (entry) => {
+  try {
+    if (!process.env.PROBE_RECORD) return;
+    const seen = new WeakSet();
+    const line = JSON.stringify({
+      at: new Date().toISOString(),
+      host: entry.host,
+      hook: entry.hook,
+      sessionId: entry.sessionId,
+      input: traceClip(entry.input, seen),
+      decision: traceClip(entry.decision, seen),
+    });
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.appendFileSync(path.join(STATE_DIR, 'trace.jsonl'), line + '\n');
+  } catch {}
+};
+// Called immediately before every exit that carries a decision. Exits before the
+// payload is parsed have nothing to record and are not traced.
+const traceDecision = (decision) => {
+  try {
+    if (!logContext) return;
+    trace({
+      host: 'claude-code',
+      hook: 'guard',
+      sessionId: logContext.session_id ?? null,
+      input: logContext,
+      decision,
+    });
+  } catch {}
+};
+
 const emit = (decision, reason) => {
+  traceDecision(decision);
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
@@ -59,7 +106,7 @@ const logDenial = (reason) => {
   } catch {}
 };
 const deny = (reason) => { logDenial(reason); emit('deny', reason); };
-const pass = () => process.exit(0);
+const pass = () => { traceDecision('allow'); process.exit(0); };
 
 // Going async makes an escaped throw exit 1, and Claude Code treats a non-zero
 // PreToolUse exit OTHER than 2 as a non-blocking error — the tool then runs. That

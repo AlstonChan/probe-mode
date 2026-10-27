@@ -2,7 +2,11 @@
 // and treat the user's Allow as the approval. `asked` carries the action,
 // which is what keeps an unrelated approval (a .env read, an external
 // directory) from unlocking anything. Returns a stop function.
-export function watchApprovals({ ctx }, session) {
+import { trace } from '../shared/trace.mjs';
+export function watchApprovals({ ctx, stateDir }, session) {
+  const log = (sessionId, event, decision) => trace(stateDir, {
+    host: 'opencode', hook: 'approval.event', sessionId: sessionId ?? null, input: event, decision,
+  });
   const approvalDialogs = new Map();
   const abort = new AbortController();
   void (async () => {
@@ -15,15 +19,20 @@ export function watchApprovals({ ctx }, session) {
           const armed = await session.armedFor(data.sessionID);
           if (armed?.state.phase !== 'planning') continue;
           approvalDialogs.set(data.id, data.sessionID);
+          log(data.sessionID, event, 'tracked');
           // Unbounded growth would need a clock we do not have here; a lost
           // entry only means the user runs `/probe approve` instead — the
           // failure direction is staying locked.
           if (approvalDialogs.size > 500) approvalDialogs.clear();
         } else if (event.type === 'permission.replied') {
           const data = event.data;
-          if (data.reply === 'reject' || !approvalDialogs.has(data.requestID)) continue;
+          if (data.reply === 'reject' || !approvalDialogs.has(data.requestID)) {
+            log(data.sessionID, event, 'ignored');
+            continue;
+          }
           approvalDialogs.delete(data.requestID);
           await session.unlock(data.sessionID, 'permission');
+          log(data.sessionID, event, 'unlocked:permission');
         }
       }
     } catch {
