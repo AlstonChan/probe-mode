@@ -15,7 +15,7 @@ Run only after a host (Claude Code / OpenCode) update. Turn any drift into a pro
 
 1. **Arm.** `/probe <question>` (plain `/probe` on a standalone Claude install, `/probe-mode:probe` on the plugin).
    - Claude Code: git snapshot taken, sandbox created, `/probe status` shows phase `probe`.
-   - OpenCode: same, via the `probe` agent; session rules `edit * -> deny` outside sandbox and plan dir are installed.
+   - OpenCode: same, via the `probe` agent; session rules `edit * -> deny` outside sandbox and plan dir are installed. Also try Shift+Tab to the Probe agent with no `/probe`: it should arm on the first message.
 2. **Edit outside the sandbox is denied.** Ask the model to edit a project file, and run `/probe check 'rm x'`.
    - Claude Code: the PreToolUse guard denies `Edit`/`Write` with a reason; `check` reports deny.
    - OpenCode: the edit is rejected by the session `deny` rule (message rewritten); `check` reports deny.

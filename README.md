@@ -176,7 +176,9 @@ Prefer to configure it yourself? Either works:
 
 or copy `opencode/` into `<global-config>/plugins/probe/`. Restart OpenCode, then check
 `opencode plugin list` and `/agents` — the mode is a `probe` agent, so it appears in the
-normal agent switcher (`Shift+Tab`) alongside Build and Plan.
+normal agent switcher (`Shift+Tab`) alongside Build and Plan. Switching to it arms the
+session on the first model request (snapshot, sandbox and deny rules, same as `/probe`);
+if arming fails, edits and shell commands on the `probe` agent are denied until you run `/probe`.
 
 ## Commands
 
