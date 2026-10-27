@@ -3,7 +3,7 @@
 - Spec (binding): docs/superpowers/specs/2026-10-27-dev-feedback-loop-design.md
 - Run `npm test` after every code change. The full suite takes ~80 s: while iterating run a single file (explicit paths, e.g. `node --test hooks/test/guard.test.mjs`; `node --test <dir>` breaks on Node 24) and run the full suite before committing.
 - A bug fix starts with a failing test that reproduces the bug.
-- `hooks/probe-guard.mjs` must not import from `shared/` or `hooks/probe-lib.mjs`. It is fail-closed by design; keep its logging inlined.
+- `hooks/probe-guard.mjs` has no static imports of `shared/` or `hooks/probe-lib.mjs`; dynamic imports only inside try -> deny. It is fail-closed by design; keep its logging inlined.
 - Logging never throws, never changes a decision, and is off unless `PROBE_RECORD` is set.
 - Tests must not touch the real `~/.claude` or `~/.probe-mode`. Point `CLAUDE_CONFIG_DIR` and `PROBE_STATE_DIR` at temp dirs.
 - Pure ESM `.mjs`, no build step, no runtime dependencies, `node --test` only.
@@ -18,7 +18,8 @@ Run only after a host (Claude Code / OpenCode) update. Turn any drift into a pro
    - OpenCode: same, via the `probe` agent; session rules `edit * -> deny` outside sandbox and plan dir are installed.
 2. **Edit outside the sandbox is denied.** Ask the model to edit a project file, and run `/probe check 'rm x'`.
    - Claude Code: the PreToolUse guard denies `Edit`/`Write` with a reason; `check` reports deny.
-   - OpenCode: the edit is rejected by the session `deny` rule (message rewritten); `check` reports deny. Sandbox writes succeed on both.
+   - OpenCode: the edit is rejected by the session `deny` rule (message rewritten); `check` reports deny.
+   - Sandbox writes succeed on both hosts.
 3. **`/probe implement`, then approve.** Writes stay blocked while planning.
    - Claude Code: plan mode, plan written to `~/.claude/plans/`; approving `ExitPlanMode` unlocks (`implementing`). Denying or leaving plan mode otherwise stays locked.
    - OpenCode: phase `planning`; the first project write raises OpenCode's own permission dialog, allowing it (or answering the `Probe plan approval` question) unlocks. Needs a human; `--auto` approves it for you.
@@ -31,19 +32,24 @@ Run only after a host (Claude Code / OpenCode) update. Turn any drift into a pro
 
 ## Capturing a bug
 
-1. Start the host with `PROBE_RECORD=1` (PowerShell: `$env:PROBE_RECORD = '1'`; then launch the host) and reproduce. Logging is off otherwise.
+1. Start the host with `PROBE_RECORD=1` (PowerShell: `$env:PROBE_RECORD = '1'`, then launch the host from that same shell session; a variable set in another window records nothing) and reproduce. Logging is off otherwise.
 2. Find the entry in `trace.jsonl`:
    - Claude: `<CLAUDE_CONFIG_DIR or ~/.claude>/probe-state/trace.jsonl`
    - OpenCode: `<PROBE_STATE_DIR or ~/.probe-mode>/trace.jsonl`
    - Line numbers are 1-based; strings over 2000 chars are truncated.
 3. Promote it: `node scripts/promote-trace.mjs <file> <line> <name> --host-version <v>`. Writes `test/fixtures/<host>/<name>.json`; refuses to overwrite. Optional: `--phase <p>`, `--sandbox <path>`, `--out-dir <dir>`.
-4. Write the failing test: `loadFixture` then `replayClaude` or `replayOpencode` from `test/fixtures/harness.mjs`, and assert the result equals `expected`. `replayClaude` supports only the `guard` hook; `replayOpencode` only `permission.evaluate`; other hooks throw `unsupported hook`.
+4. Write the failing test: `loadFixture` then `replayClaude` or `replayOpencode` from `test/fixtures/harness.mjs`, and assert the result equals `expected`. `expected` is what the hook did; for a bug, edit it to the correct decision first and watch the test fail. `replayOpencode` needs a harness from `createOpencodeHarness()`, with `h.close()` in a `finally`. `replayClaude` supports only the `guard` hook; `replayOpencode` only `permission.evaluate`; other hooks throw `unsupported hook`.
 
 `setup` (phase, sandbox, cwd) is read at promote time from the sibling `<sessionId>.json` state file, not from the trace: promote soon after reproducing, or pass `--phase`/`--sandbox`.
 
-Privacy: traces contain prompts and file contents. Local only, off by default; never commit trace files.
+Privacy: traces contain prompts and file contents. Local only, off by default; never commit trace files. Promoted fixtures are derived from traces (payload text, `cwd`, `transcript_path`, `session_id`, absolute paths): review and redact them before committing.
 
 ## Known gaps
 
 - Fixtures cannot test model compliance (e.g. the OpenCode model coding directly instead of following research -> plan -> execute).
-- The Claude guard allows tool names it does not know. A new host write tool must be added to the `hooks/hooks.json` PreToolUse matcher, `hooks/probe-guard.mjs`, and the tool list in `hooks/test/write-tools.test.mjs`.
+- The Claude guard allows tool names it does not know. A new host write tool must be added to the `hooks/hooks.json` PreToolUse matcher, its copy in `install.sh` (a test checks they match), `hooks/probe-guard.mjs`, and the tool list in `hooks/test/write-tools.test.mjs`.
+- With `PROBE_RECORD` set, every Edit/Write/Bash in every Claude session is recorded, armed or not. `trace.jsonl` is never pruned and grows unbounded: delete it periodically.
+- Replay fidelity: temp config dirs are used; OpenCode replay ignores `setup.cwd`; `plansDir`/`probe.json` come from the real home; strings over 2000 chars are truncated, so a long command may not reproduce a deny; a missing-state-file `allow` cannot be replayed.
+- `Date`/`Map`/`Set`/`Error` values in payloads are logged as `{}`.
+- `replayClaude` treats empty stdout as `allow` and does not check the process exit status, so a guard that fails to start would pass `allow` fixtures.
+- `setup` is read at promote time and may be newer than the recorded moment.
