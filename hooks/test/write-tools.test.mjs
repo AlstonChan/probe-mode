@@ -1,4 +1,4 @@
-﻿// Claude guard coverage of every write/shell tool, and hooks.json routing.
+// Claude guard coverage of every write/shell tool, and hooks.json routing.
 //
 //   node --test hooks/test/write-tools.test.mjs
 
@@ -13,6 +13,12 @@ const GUARD = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-guard.m
 const HOOKS_JSON = path.join(import.meta.dirname, '..', '..', 'hooks', 'hooks.json');
 const SID = 'write-tools-session';
 
+// Maintained by hand: the host's tool set cannot be enumerated automatically.
+// When Claude Code (or any host) adds a write-capable tool, add its name here
+// AND to the PreToolUse matcher in hooks/hooks.json, and handle it in
+// hooks/probe-guard.mjs. The guard allows tools it does not know (see the
+// FutureWriteTool test), so the matcher is the only thing that routes a tool
+// to it. No other tool names are listed: the guard handles only these six.
 const WRITE_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const SHELL_TOOLS = ['Bash', 'PowerShell'];
 
@@ -81,7 +87,7 @@ test('every write and shell tool is routed to the guard by hooks.json', () => {
 // only checks the four named file tools and the two shell tools, then passes).
 // Real hooks.json routing never sends unknown tools to the guard, so this is
 // only reachable if the matcher is widened or a new write tool is not added.
-test('unknown tool FutureWriteTool is allowed by the guard (finding)', () => {
+test('unknown tool FutureWriteTool is currently allowed (known gap)', () => {
   setPhase('probe');
   assert.equal(decide('FutureWriteTool', { file_path: path.join(PROJECT, 'a.txt') }), 'allow');
 });

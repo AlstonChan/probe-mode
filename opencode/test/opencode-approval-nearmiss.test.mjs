@@ -1,4 +1,4 @@
-﻿// Near-miss answers to the OpenCode plan-approval question.
+// Near-miss answers to the OpenCode plan-approval question.
 //
 // Only the exact label "approve" (trimmed, case-insensitive) unlocks; every
 // other answer must leave the session in planning. Each case re-arms a fresh
