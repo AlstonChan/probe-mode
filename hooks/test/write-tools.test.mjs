@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const GUARD = path.join(import.meta.dirname, '..', '..', 'hooks', 'probe-guard.mjs');
+const INSTALL_SH = path.join(import.meta.dirname, '..', '..', 'install.sh');
 const HOOKS_JSON = path.join(import.meta.dirname, '..', '..', 'hooks', 'hooks.json');
 const SID = 'write-tools-session';
 
@@ -18,9 +19,11 @@ const SID = 'write-tools-session';
 // AND to the PreToolUse matcher in hooks/hooks.json, and handle it in
 // hooks/probe-guard.mjs. The guard allows tools it does not know (see the
 // FutureWriteTool test), so the matcher is the only thing that routes a tool
-// to it. No other tool names are listed: the guard handles only these six.
+// to it. The guard handles exactly WRITE_TOOLS + SHELL_TOOLS + MATCHER_ONLY.
+// MATCHER_ONLY is routed to the guard for plan-approval handling, not a write tool.
 const WRITE_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const SHELL_TOOLS = ['Bash', 'PowerShell'];
+const MATCHER_ONLY = ['ExitPlanMode'];
 
 let CFG, SANDBOX, PROJECT;
 
@@ -75,12 +78,37 @@ for (const tool of SHELL_TOOLS) {
   });
 }
 
+for (const tool of SHELL_TOOLS) {
+  test(`probe: ${tool} redirect into the sandbox is allowed (positive control)`, () => {
+    setPhase('probe');
+    assert.equal(decide(tool, { command: `echo hi > ${path.join(SANDBOX, 'out.txt')}` }), 'allow');
+  });
+}
+
 test('every write and shell tool is routed to the guard by hooks.json', () => {
   const cfg = JSON.parse(fs.readFileSync(HOOKS_JSON, 'utf8'));
   const names = cfg.hooks.PreToolUse.flatMap((e) => e.matcher.split('|'));
   for (const tool of [...WRITE_TOOLS, ...SHELL_TOOLS]) {
     assert.ok(names.includes(tool), `${tool} missing from PreToolUse matcher`);
   }
+});
+
+test('PreToolUse matcher entries are exactly the tools the guard handles', () => {
+  const cfg = JSON.parse(fs.readFileSync(HOOKS_JSON, 'utf8'));
+  const names = cfg.hooks.PreToolUse.flatMap((e) => e.matcher.split('|'));
+  assert.deepEqual(
+    [...new Set(names)].sort(),
+    [...WRITE_TOOLS, ...SHELL_TOOLS, ...MATCHER_ONLY].sort(),
+  );
+});
+
+test('install.sh repeats the same PreToolUse matcher as hooks.json', () => {
+  const cfg = JSON.parse(fs.readFileSync(HOOKS_JSON, 'utf8'));
+  const json = cfg.hooks.PreToolUse.map((e) => e.matcher);
+  const sh = fs.readFileSync(INSTALL_SH, 'utf8');
+  const m = sh.match(/matcher:\s*"([^"]+)"/);
+  assert.ok(m, 'no matcher found in install.sh');
+  assert.equal(m[1], json[0]);
 });
 
 // Observed: the guard ALLOWS an unknown tool even while armed (probe-guard.mjs
