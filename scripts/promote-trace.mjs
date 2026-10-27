@@ -28,6 +28,7 @@ try { entry = JSON.parse(raw); } catch { fail(`line ${line} is not valid JSON`);
 if (!entry || typeof entry !== 'object' || !entry.host || !entry.hook) fail(`line ${line} is not a trace entry`);
 
 const outDir = flags['out-dir'] ?? path.join(import.meta.dirname, '..', 'test', 'fixtures');
+if (typeof entry.host !== 'string' || !/^[\w-]+$/.test(entry.host)) fail(`invalid host in trace entry: ${JSON.stringify(entry.host)}`);
 const file = path.join(outDir, entry.host, `${name}.json`);
 if (fs.existsSync(file)) fail(`fixture already exists: ${file}`);
 
@@ -36,7 +37,9 @@ if (entry.sessionId) {
   try {
     const st = JSON.parse(fs.readFileSync(path.join(path.dirname(path.resolve(tracePath)), `${entry.sessionId}.json`), 'utf8'));
     for (const k of ['phase', 'sandbox', 'cwd']) if (st && st[k] !== undefined) setup[k] = st[k];
-  } catch {}
+  } catch {
+    console.error(`promote-trace: no readable state file for ${entry.sessionId}; pass --phase/--sandbox`);
+  }
 }
 if (flags.phase) setup.phase = flags.phase;
 if (flags.sandbox) setup.sandbox = flags.sandbox;
@@ -54,3 +57,4 @@ const fixture = {
 fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify(fixture, null, 2) + '\n', { flag: 'wx' });
 console.log(file);
+console.error('promote-trace: review before committing: the fixture contains payload text and absolute paths. `expected` is what the hook did; for a bug, edit it to the correct decision first and watch the test fail.');

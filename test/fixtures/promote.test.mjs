@@ -162,3 +162,37 @@ test('round trip opencode: stub-ctx evaluate trace -> promote -> replay', async 
     } finally { replayer.close(); }
   } finally { live.close(); }
 });
+
+test('success prints the review notice on stderr', () => {
+  const dir = mk('n1'); const out = mk('n1out');
+  const r = promote(sampleTrace(dir), 1, 'x', out);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /review before committing: the fixture contains payload text and absolute paths/);
+  assert.match(r.stderr, /`expected` is what the hook did/);
+});
+
+test('failure paths do not print the review notice', () => {
+  const dir = mk('n2'); const out = mk('n2out');
+  const r = promote(sampleTrace(dir), 9, 'x', out);
+  assert.notEqual(r.status, 0);
+  assert.doesNotMatch(r.stderr, /review before committing/);
+});
+
+test('host used as a path segment is validated; nothing is written', () => {
+  const dir = mk('h1'); const out = mk('h1out');
+  const f = path.join(dir, 'trace.jsonl');
+  fs.writeFileSync(f, JSON.stringify({ ...e1, host: '../evil' }) + '\n');
+  const r = promote(f, 1, 'x', out);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /invalid host/);
+  assert.doesNotMatch(r.stderr, /review before committing/);
+  assert.deepEqual(fs.readdirSync(out), []);
+  assert.equal(fs.existsSync(path.join(out, '..', 'evil')), false);
+});
+
+test('missing state file is reported on stderr, fixture still written', () => {
+  const dir = mk('s1'); const out = mk('s1out');
+  const r = promote(sampleTrace(dir), 1, 'x', out);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /no readable state file for a; pass --phase\/--sandbox/);
+});
