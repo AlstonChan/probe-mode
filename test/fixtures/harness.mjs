@@ -50,14 +50,14 @@ export async function createOpencodeHarness({ record = false } = {}) {
   const prev = { dir: process.env.PROBE_STATE_DIR, rec: process.env.PROBE_RECORD };
   process.env.PROBE_STATE_DIR = stateDir;
   if (record) process.env.PROBE_RECORD = '1'; else delete process.env.PROBE_RECORD;
-  const h = { stateDir, repo, evaluate: null, context: null, calls: [] };
+  const h = { stateDir, repo, evaluate: null, context: null, calls: [], failUpdate: false };
   async function* stream() { await new Promise(() => {}); }
   const { default: plugin } = await import(new URL('../../opencode/index.mjs', import.meta.url));
   await plugin.setup({
     location: { directory: repo },
     session: {
       get: async () => ({}),
-      update: async (input) => { h.calls.push({ fn: 'update', input }); },
+      update: async (input) => { if (h.failUpdate) throw new Error('update failed'); h.calls.push({ fn: 'update', input }); },
       switchAgent: async (input) => { h.calls.push({ fn: 'switchAgent', input }); },
       prompt: async () => {},
       hook: async (name, fn) => { if (name === 'context') h.context = fn; },

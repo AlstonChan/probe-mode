@@ -24,7 +24,7 @@ test('probe agent, unarmed: first context event arms the session', () => withHar
   assert.equal(state.phase, 'probe');
   assert.equal(state.round, 1);
   assert.equal(event.system.length, 1);
-  assert.match(event.system[0].text, /probe/i);
+  assert.match(event.system[0].text, /PROBE MODE IS ACTIVE \(round 1, phase: probe\)/);
 }));
 
 test('two concurrent context events arm once', () => withHarness(async (h) => {
@@ -82,4 +82,26 @@ test('build agent, unarmed: edit is untouched', () => withHarness(async (h) => {
   const event = edit('build');
   await h.evaluate(event);
   assert.equal(event.effect, 'allow');
+}));
+
+test('rules failing after the state write rolls arming back and keeps writes denied', () => withHarness(async (h) => {
+  h.failUpdate = true;
+  await assert.doesNotReject(h.context({ sessionID: 's3', agent: 'probe', system: [] }));
+  assert.equal(fs.existsSync(stateFile(h, 's3')), false);
+  const event = { sessionID: 's3', agent: 'probe', action: 'edit', resources: ['C:/proj/package.json'], effect: 'allow' };
+  await h.evaluate(event);
+  assert.equal(event.effect, 'deny');
+  h.failUpdate = false;
+  await h.context({ sessionID: 's3', agent: 'probe', system: [] });
+  assert.equal(readJson(stateFile(h, 's3')).phase, 'probe');
+}));
+
+test('phase off is not re-armed by the probe agent', () => withHarness(async (h) => {
+  await h.context({ sessionID: 's4', agent: 'probe', system: [] });
+  const state = readJson(stateFile(h, 's4'));
+  fs.writeFileSync(stateFile(h, 's4'), JSON.stringify({ ...state, phase: 'off' }));
+  const before = h.calls.length;
+  await h.context({ sessionID: 's4', agent: 'probe', system: [] });
+  assert.equal(readJson(stateFile(h, 's4')).phase, 'off');
+  assert.equal(h.calls.length, before);
 }));

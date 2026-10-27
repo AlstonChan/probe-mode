@@ -1,7 +1,7 @@
 // Arming: state creation, per-round snapshot, rules and agent switch.
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeState, normalizeRounds, roundRef } from '../shared/state.mjs';
+import { writeState, normalizeRounds, roundRef, statePath } from '../shared/state.mjs';
 import { trySnapshot } from '../shared/git.mjs';
 import { CMD, armPrompt, sandboxFor } from './lib.mjs';
 
@@ -75,6 +75,9 @@ export function createLifecycle(env, session) {
         if (!(await session.armedFor(sessionID))) await arm(sessionID, '');
         return true;
       } catch {
+        // Half-armed (state written, rules not applied) must not look armed:
+        // drop the state so the permission hook fails closed and the next request retries.
+        try { fs.rmSync(statePath(stateDir, sessionID), { force: true }); } catch {}
         return false;
       } finally {
         inflight.delete(sessionID);
