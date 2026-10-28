@@ -1,7 +1,7 @@
 // Restore acts on the right repository and the right branch, and puts the
 // index back as it was.
 //
-//   node --test test/restore.test.mjs
+//   node --test hooks/test/restore.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

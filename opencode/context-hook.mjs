@@ -5,6 +5,7 @@ import { statePath } from '../shared/state.mjs';
 import { contractText } from '../shared/contract.mjs';
 import { CMD } from './lib.mjs';
 
+/** @param {import('./index.mjs').PluginEnv} env */
 export async function registerContextHook(env, session, lifecycle) {
   const { ctx, stateDir } = env;
 

@@ -1,7 +1,7 @@
 // The denial log: every guard denial is recorded, outside the model's reach,
 // and summarized by status.
 //
-//   node --test test/denials.test.mjs
+//   node --test shared/test/denials.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

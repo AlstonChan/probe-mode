@@ -1,6 +1,6 @@
 // User and project command patterns.
 //
-//   node --test test/policy.test.mjs
+//   node --test shared/test/policy.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

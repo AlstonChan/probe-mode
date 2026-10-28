@@ -1,7 +1,7 @@
 // The status line names the current round's restore point, and why it is
 // missing when it is.
 //
-//   node --test test/statusline.test.mjs
+//   node --test hooks/test/statusline.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

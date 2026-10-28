@@ -1,6 +1,6 @@
 // Shell analysis: bypasses that must deny and read-only commands that must not.
 //
-//   node --test test/shell.test.mjs
+//   node --test shared/test/shell.test.mjs
 //
 // Every case below was a real gap found by an adversarial review of the old
 // regex analysis. They run against shared/shell.mjs directly (what OpenCode

@@ -1,6 +1,6 @@
 // The diff subcommand: what changed since a round's snapshot, read-only.
 //
-//   node --test test/diff.test.mjs
+//   node --test hooks/test/diff.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

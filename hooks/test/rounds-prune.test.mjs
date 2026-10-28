@@ -1,6 +1,6 @@
 // rounds / rounds prune: list restore points, drop all but the current one.
 //
-//   node --test test/rounds-prune.test.mjs
+//   node --test hooks/test/rounds-prune.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

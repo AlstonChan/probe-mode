@@ -1,6 +1,6 @@
 // export: one markdown file outside the project with the round's findings.
 //
-//   node --test test/export.test.mjs
+//   node --test hooks/test/export.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

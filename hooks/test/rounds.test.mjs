@@ -1,6 +1,6 @@
 // Rounds, snapshot durability, and restore targeting.
 //
-//   node --test test/rounds.test.mjs
+//   node --test hooks/test/rounds.test.mjs
 //
 // Drives the real probe-ctl against a throwaway git repo, with CLAUDE_CONFIG_DIR
 // pointed at a temp directory so nothing touches your real state.

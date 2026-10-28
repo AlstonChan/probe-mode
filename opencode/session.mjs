@@ -2,8 +2,7 @@
 import { writeState } from '../shared/state.mjs';
 import { sessionRules } from '../shared/rules.mjs';
 
-/** `env` is the plugin environment built in index.mjs:
- *  { ctx, stateDir, plansDir, locationDir, extraRoots, stateOf, rootsFor }. */
+/** @param {import('./index.mjs').PluginEnv} env */
 export function createSession(env) {
   const { ctx, stateDir, plansDir, locationDir, extraRoots, stateOf } = env;
 

@@ -1,7 +1,7 @@
 // Phase-aware pruning in probe-cleanup.mjs, plus the liveness heartbeat that makes
 // mtime mean "last used" instead of "last phase change".
 //
-//   node --test test/cleanup.test.mjs
+//   node --test hooks/test/cleanup.test.mjs
 //
 // Drives the real hooks as subprocesses with CLAUDE_CONFIG_DIR pointed at a temp
 // dir. execFileSync({ input }) is fine here -- stdin semantics are hooks-stdin's job.

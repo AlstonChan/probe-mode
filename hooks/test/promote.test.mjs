@@ -1,6 +1,6 @@
 // The ExitPlanMode hook: the one thing that unlocks writes.
 //
-//   node --test test/promote.test.mjs
+//   node --test hooks/test/promote.test.mjs
 
 import { test, before, after, afterEach, describe } from 'node:test';
 import assert from 'node:assert/strict';

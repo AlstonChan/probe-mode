@@ -1,6 +1,6 @@
 // Every hook must exit even when its stdin pipe is never closed.
 //
-//   node --test test/hooks-stdin.test.mjs
+//   node --test hooks/test/hooks-stdin.test.mjs
 //
 // This is the regression guard for the process leak: fs.readFileSync(0) blocks the
 // event loop forever when Claude Code writes a payload and never closes the pipe.

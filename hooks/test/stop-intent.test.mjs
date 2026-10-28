@@ -1,6 +1,6 @@
 // Only the user may switch probe mode off.
 //
-//   node --test test/stop-intent.test.mjs
+//   node --test hooks/test/stop-intent.test.mjs
 //
 // The skill runs `probe-ctl stop` through the model's Bash tool, so the guard
 // needs proof the user typed the stop command: a one-shot token the

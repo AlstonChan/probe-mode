@@ -6,6 +6,7 @@ import { analyzeSegments, loadPolicy, matchPolicy } from '../shared/shell.mjs';
 import { CMD } from './lib.mjs';
 import { trace } from '../shared/trace.mjs';
 
+/** @param {import('./index.mjs').PluginEnv} env */
 export async function registerPermissionHook(env, session) {
   const { ctx, stateDir, plansDir, locationDir, extraRoots, rootsFor } = env;
 

@@ -12,6 +12,7 @@ const noSnapshot = (error) => error
 
 export const plansFileFor = (env, sessionID) => path.join(env.plansDir, `probe-${sessionID}.md`);
 
+/** @param {import('./index.mjs').PluginEnv} env */
 export function createLifecycle(env, session) {
   const { ctx, stateDir, locationDir, stateOf } = env;
 

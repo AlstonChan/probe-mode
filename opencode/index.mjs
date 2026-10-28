@@ -62,6 +62,21 @@ const inProjectSandbox = (locationDir) => path.join(locationDir, '.probe-sandbox
 /** The user's own allow/deny command patterns (shared/shell.mjs explains the format). */
 const USER_POLICY = path.join(HOME, '.probe-mode', 'probe.json');
 
+/**
+ * The environment every module receives, built once in `setup`.
+ * @typedef {object} PluginEnv
+ * @property {any} ctx - OpenCode's plugin context (v2 API; no local types ship with it).
+ * @property {string} stateDir - State files, sandboxes, exports and the trace.
+ * @property {string} plansDir - OpenCode's own plan directory, writable in every phase.
+ * @property {string} locationDir - The project directory OpenCode was opened in.
+ * @property {string[]} extraRoots - Writable roots besides the sandbox (`.probe-sandbox`).
+ * @property {string} userPolicy - Path of the user's allow/deny pattern file.
+ * @property {(sessionID: string) => import('../shared/state.mjs').ProbeState | null} stateOf
+ *   - State stored on exactly this session; use `session.armedFor` to include ancestors.
+ * @property {(state: import('../shared/state.mjs').ProbeState) => string[]} rootsFor
+ *   - Every writable root for a state.
+ */
+
 export default {
   id: 'probe-mode',
 
@@ -72,6 +87,7 @@ export default {
 
     try { pruneStateDir(stateDir); } catch {}
 
+    /** @type {PluginEnv} */
     const env = {
       ctx,
       stateDir,

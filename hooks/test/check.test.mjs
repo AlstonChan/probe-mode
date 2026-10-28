@@ -1,6 +1,6 @@
 // The check subcommand: a dry run of the guard, on both hosts.
 //
-//   node --test test/check.test.mjs
+//   node --test hooks/test/check.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

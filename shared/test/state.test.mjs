@@ -1,7 +1,7 @@
 // State file integrity: atomic writes, and a corrupted state that the user can
 // see and recover from without losing restore points.
 //
-//   node --test test/state.test.mjs
+//   node --test shared/test/state.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';

@@ -1,7 +1,7 @@
 // The `setup` subcommand and the `status` staleness nudge, plus a small direct
 // regression guard on probe-statusline.mjs's --cmd= override.
 //
-//   node --test test/setup.test.mjs
+//   node --test hooks/test/setup.test.mjs
 //
 // Drives the real probe-ctl.mjs / probe-statusline.mjs as subprocesses, with
 // CLAUDE_CONFIG_DIR pointed at a temp directory so nothing touches your real config.

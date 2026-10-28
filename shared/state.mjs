@@ -1,17 +1,7 @@
 // Host-agnostic probe-mode state: phases, rounds, restore points, and the
 // phase-aware retention sweep.
 //
-// Both hosts read and write the same state-file shape:
-//
-//   {
-//     phase: 'probe' | 'planning' | 'implementing' | 'off',
-//     round: 3, rounds: [{ n, at, ref, head, branch }],
-//     snapshot: { ref, head, branch, at },   // round 1, kept for old state files
-//     sandbox: '/abs/path/to/sandbox',
-//     cwd, startedAt, approvedAt, undo: { ref, head, branch, at },
-//     host: 'claude' | 'opencode'           // which host armed this session
-//   }
-//
+// Both hosts read and write the same state-file shape (ProbeState below).
 // The file lives at <stateDir>/<sessionID>.json and the session's sandbox at
 // <stateDir>/<sessionID>/sandbox/. Sessions are per-host, so a directory is
 // never shared between Claude Code and OpenCode.
@@ -21,6 +11,39 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+
+/** @typedef {'probe' | 'planning' | 'implementing' | 'off'} Phase */
+
+/**
+ * A git restore point. `head` is null in a repository with no commits.
+ * @typedef {object} Snapshot
+ * @property {string} ref - Commit the snapshot is stored as (worktree incl. untracked files).
+ * @property {string | null} head - HEAD when it was taken.
+ * @property {string} branch - Branch name, or `'HEAD'` when detached.
+ * @property {string} at - ISO time it was taken.
+ */
+
+/** @typedef {Snapshot & { n: number }} Round - One research round's restore point. */
+
+/**
+ * The state file, shared by both hosts.
+ * @typedef {object} ProbeState
+ * @property {Phase} phase
+ * @property {number} round - Current round; a round whose snapshot failed still counts.
+ * @property {Round[]} [rounds] - Restore points; absent in files written before rounds (see normalizeRounds).
+ * @property {Snapshot | null} [snapshot] - Round 1's snapshot, kept for old state files.
+ * @property {string} [snapshotError] - Why the latest round has no restore point.
+ * @property {string} sandbox - The only writable directory while locked.
+ * @property {string} cwd - Project directory the session was armed in.
+ * @property {string} startedAt - ISO time of arming.
+ * @property {string} [planningAt] - ISO time `implement` began (Claude: plan must be newer).
+ * @property {string} [approvedAt] - ISO time writes were unlocked.
+ * @property {'command' | 'question' | 'permission'} [approvedBy] - OpenCode: which path unlocked.
+ * @property {Snapshot} [undo] - Pre-restore point, so a restore can be reversed.
+ * @property {number} [stopIntent] - Claude: epoch ms the user asked to stop; the guard honors it briefly.
+ * @property {string} [sessionID] - OpenCode: the session that owns this state.
+ * @property {'claude' | 'opencode'} [host] - Which host armed the session.
+ */
 
 export const PHASES = ['probe', 'planning', 'implementing', 'off'];
 
@@ -33,6 +56,12 @@ export function statePath(stateDir, sessionId) {
   return path.join(stateDir, `${sessionId}.json`);
 }
 
+/**
+ * The session's state, or null when it is absent or unusable.
+ * @param {string} stateDir
+ * @param {string} sessionId
+ * @returns {ProbeState | null}
+ */
 export function readState(stateDir, sessionId) {
   const s = inspectState(stateDir, sessionId);
   return s.status === 'ok' ? s.state : null;
@@ -42,7 +71,9 @@ export function readState(stateDir, sessionId) {
  * Like readState, but tells "no state" apart from "a state file we cannot use".
  * The guard denies on the second, so a caller that treated it as "off" would
  * report one thing while the guard enforced another.
- * @returns {{status: 'absent'} | {status: 'unreadable', error: string} | {status: 'ok', state: object}}
+ * @param {string} stateDir
+ * @param {string} sessionId
+ * @returns {{status: 'absent'} | {status: 'unreadable', error: string} | {status: 'ok', state: ProbeState}}
  */
 export function inspectState(stateDir, sessionId) {
   let raw;
@@ -63,8 +94,14 @@ export function inspectState(stateDir, sessionId) {
   }
 }
 
-/** Atomic: written to a temp file and renamed over the old one, so a reader
- *  (the guard runs on every tool call) never sees a half-written state. */
+/**
+ * Atomic: written to a temp file and renamed over the old one, so a reader
+ * (the guard runs on every tool call) never sees a half-written state.
+ * @param {string} stateDir
+ * @param {string} sessionId
+ * @param {ProbeState} state
+ * @throws when the rename still fails after retries; the temp file is removed.
+ */
 export function writeState(stateDir, sessionId, state) {
   fs.mkdirSync(stateDir, { recursive: true });
   const target = statePath(stateDir, sessionId);
@@ -115,6 +152,8 @@ export function heartbeat(stateDir, sessionId) {
  * Rounds list for a state, synthesizing one for state files written before
  * rounds existed. Those have a bare `snapshot` and no `rounds`, and must keep
  * working without a migration step.
+ * @param {ProbeState | null} state
+ * @returns {Round[]}
  */
 export function normalizeRounds(state) {
   if (!state) return [];

@@ -1,7 +1,7 @@
 // implement only works from research: from off or implementing it explains
 // instead of silently re-locking writes.
 //
-//   node --test test/implement.test.mjs
+//   node --test hooks/test/implement.test.mjs
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
