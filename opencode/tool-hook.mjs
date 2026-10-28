@@ -9,12 +9,27 @@ function toolInput(event) {
   return event.input && typeof event.input === 'object' ? event.input : {};
 }
 
+/** OpenCode wraps a permission rejection in a ToolError whose own message is
+ *  generic ("Unable to edit <path>"); the wrapped error is the one that says
+ *  why, and the one the model is shown. */
+const reasonOf = (error) => error?.error?.message ?? error?.message;
+
+/** The same error without the wrapped one, so the model reads `message`. A
+ *  copy with the host's prototype, so it still counts as a tool failure:
+ *  OpenCode's own Plan agent swaps in a fresh ToolError the same way. */
+function withMessage(error, message) {
+  return Object.assign(Object.create(Object.getPrototypeOf(error)), error, { message, error: undefined });
+}
+
 export async function registerToolHook({ ctx, stateDir }, session) {
-  const log = (event, decision) => trace(stateDir, {
+  const log = (event, decision, error = event.error) => trace(stateDir, {
     host: 'opencode',
     hook: 'tool.execute.after',
     sessionId: event.sessionID ?? null,
-    input: { tool: event.tool, status: event.status, input: event.input, result: event.result, error: event.error?.message },
+    input: {
+      tool: event.tool, status: event.status, input: event.input, result: event.result,
+      error: error?.message, cause: error?.error?.message,
+    },
     decision,
   });
   await ctx.tool.hook('execute.after', async (event) => {
@@ -24,9 +39,10 @@ export async function registerToolHook({ ctx, stateDir }, session) {
     if (state.phase === 'off') return;
 
     if (event.status === 'error') {
+      const original = event.error;
       const replacement = deniedMessageFor({
         tool: event.tool,
-        message: event.error?.message,
+        message: reasonOf(original),
         input: toolInput(event),
         phase: state.phase,
         sandbox: state.sandbox,
@@ -34,12 +50,12 @@ export async function registerToolHook({ ctx, stateDir }, session) {
       });
       if (!replacement) return log(event, 'ignored');
       try {
-        event.error.message = replacement;
+        event.error = withMessage(original, replacement);
       } catch {
-        // The host owns the error object; if it refuses mutation the model
-        // keeps the generic message. Enforcement is unaffected either way.
+        // If the host refuses the swap the model keeps the generic message.
+        // Enforcement is unaffected either way.
       }
-      log(event, 'denied-message');
+      log(event, 'denied-message', original); // the host's text, not ours
       return;
     }
 

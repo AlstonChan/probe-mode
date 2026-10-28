@@ -18,7 +18,7 @@ Run only after a host (Claude Code / OpenCode) update. Turn any drift into a pro
    - OpenCode: same, via the `probe` agent; session rules `edit * -> deny` outside sandbox and plan dir are installed. Also try Shift+Tab to the Probe agent with no `/probe`: it should arm on the first message.
 2. **Edit outside the sandbox is denied.** Ask the model to edit a project file, and run `/probe check 'rm x'`.
    - Claude Code: the PreToolUse guard denies `Edit`/`Write` with a reason; `check` reports deny.
-   - OpenCode: the edit is rejected by the session `deny` rule (message rewritten); `check` reports deny.
+   - OpenCode: the edit is rejected by the session `deny` rule; `check` reports deny. The model must report "Blocked by probe mode …", not a bare "Permission denied: edit" (that means the rewrite in `opencode/tool-hook.mjs` no longer matches the host's error shape). The model may refuse to try; tell it you want to see the error.
    - Sandbox writes succeed on both hosts.
 3. **`/probe implement`, then approve.** Writes stay blocked while planning.
    - Claude Code: plan mode, plan written to `~/.claude/plans/`; approving `ExitPlanMode` unlocks (`implementing`). Denying or leaving plan mode otherwise stays locked.
