@@ -1,4 +1,23 @@
 {
+  "name": "probe-mode",
+  "version": "1.4.2",
+  "description": "Research-only mode you can loop: round after round of questioning, testing and benchmarking in a sandbox, then a plan you approve, then implementation, and back to research whenever you want. Enforced by hooks rather than by the model, and every round keeps its own git restore point.",
+  "author": {
+    "name": "Alston Chan",
+    "email": "git@chanalston.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlstonChan/probe-mode.git"
+  },
+  "homepage": "https://github.com/AlstonChan/probe-mode#readme",
+  "bugs": {
+    "url": "https://github.com/AlstonChan/probe-mode/issues"
+  },
+  "engines": {
+    "node": ">=24"
+  },
   "private": true,
   "type": "module",
   "scripts": {
