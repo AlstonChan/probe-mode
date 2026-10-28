@@ -209,6 +209,18 @@ On OpenCode, subcommands that only report something (`status`, `check`, `diff`,
 notice in the session and do not start a model turn; the model reads it with its next
 request. Only `/probe <question>`, `implement` and `approve` hand the turn to the model.
 
+### Only you start planning
+
+Moving from research to planning is always your command: `/probe implement`, on both
+hosts. The model never asks whether it may start planning, whether by `EnterPlanMode` on
+Claude Code or by a dialog or the `question` tool on OpenCode. That is on purpose.
+Research is often unfinished when the model thinks it is done, and a "Ready to plan?"
+prompt you have to decline every round costs more than typing one command when you are
+ready. The contract says so: the model may point you to `/probe implement` when it reports
+findings, but must not ask for it repeatedly.
+
+On OpenCode the `question` tool has one job: approving a plan you already asked for.
+
 `/probe` is `disable-model-invocation: true` in Claude Code — Claude cannot arm or
 disarm it, only you can. OpenCode has no model-facing command tool, so the same holds
 there: the model cannot run `/probe …`, only you can.
