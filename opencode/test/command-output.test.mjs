@@ -58,6 +58,32 @@ test('stop and a bare /probe are notices; bare /probe still arms', () => withHar
   assertNotice(await output(h, 's3', 'stop'), /Probe mode OFF/);
 }));
 
+test('a bare /probe is labeled as typed, not as the start alias', () => withHarness(async (h) => {
+  const [{ input }] = await output(h, 's6', '');
+  assert.match(input.text, /^\[\/probe\] /);
+}));
+
+test('a bare /probe with an attachment hands the turn to the model', () => withHarness(async (h) => {
+  const start = h.calls.length;
+  await h.run({ sessionID: 's7', prompt: { text: '', files: [{ path: 'spec.md' }] } });
+  const calls = h.calls.slice(start).filter((c) => c.fn === 'prompt' || c.fn === 'synthetic');
+  assertPrompt(calls);
+  assert.deepEqual(calls[0].input.files, [{ path: 'spec.md' }]);
+}));
+
+test('notices keep the delivery the host asked for', () => withHarness(async (h) => {
+  await h.run({ sessionID: 's8', prompt: { text: 'status' }, delivery: 'queue' });
+  assert.equal(h.calls.at(-1).input.delivery, 'queue');
+}));
+
+test('only the prune preview warns the model off --force', () => withHarness(async (h) => {
+  await output(h, 's9', 'is X faster?');
+  const [list] = await output(h, 's9', 'rounds');
+  assert.doesNotMatch(list.input.text, /--force yourself/);
+  const [prune] = await output(h, 's9', 'rounds prune');
+  assert.match(prune.input.text, /--force yourself/);
+}));
+
 test('implement refusal is a notice', () => withHarness(async (h) => {
   await output(h, 's4', 'is X faster?');
   await output(h, 's4', 'approve');

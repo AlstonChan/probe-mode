@@ -87,7 +87,7 @@ export function armPrompt({ state, question, snapshotLine }) {
     '',
     ...(question
       ? [`Investigate: ${question}`, 'Follow the probe contract injected with this turn; report findings and stop.']
-      : ['Ask your question in the chat; writes stay blocked until you approve a plan.']),
+      : [`Ask your question in the chat. When research is done, \`${CMD} implement\` asks for a plan; writes stay blocked until you approve it.`]),
   ].join('\n');
 }
 
@@ -123,8 +123,15 @@ export function stopNotice() {
 export const RESTORE_WORDING = {
   undoSaved: `Undo point saved — reverse this with: ${CMD} restore --undo --force`,
   reversible: `\`${CMD} restore --undo\` puts it back.`,
-  confirm: `Nothing has changed yet. Run ${CMD} restore --force to apply it (--round N or --all targets another round).`,
 };
+
+/** The command that applies a restore preview: the same flags plus --force.
+ *  Dropping them would restore a different target, and an --undo preview
+ *  applied as plain --force overwrites the very undo point it showed. */
+const applyRestore = (args) => [`${CMD} restore`, ...args.filter((a) => a !== '--force'), '--force'].join(' ');
+
+/** Footer for a restore preview, built from the previewed flags. */
+export const restoreConfirm = (args) => `Nothing has changed yet. Run ${applyRestore(args)} to apply it.`;
 
 export const PRUNE_WORDING = {
   confirm: `Nothing has been deleted yet. Run ${CMD} rounds prune --force to apply it.`,
@@ -132,10 +139,10 @@ export const PRUNE_WORDING = {
 
 /** `restore` output. The preview's model note keeps the model from applying
  *  it: only the user runs `--force`. */
-export function restoreNotice({ text, force }) {
+export function restoreNotice({ text, force, args = [] }) {
   return force
     ? notice('restore', text, 'The project was rolled back; re-read files before relying on what you saw earlier.')
-    : notice('restore', text, `Nothing has been changed. Only the user runs \`${CMD} restore --force\`; do NOT apply it yourself.`);
+    : notice('restore', text, `Nothing has been changed. Only the user runs \`${applyRestore(args)}\`; do NOT apply it yourself.`);
 }
 
 /** Sandbox the arm step creates: outside the workspace, so its rules grant the

@@ -11,8 +11,9 @@ function toolInput(event) {
 
 /** OpenCode wraps a permission rejection in a ToolError whose own message is
  *  generic ("Unable to edit <path>"); the wrapped error is the one that says
- *  why, and the one the model is shown. */
-const reasonOf = (error) => error?.error?.message ?? error?.message;
+ *  why, and the one the model is shown. The outer message is still checked,
+ *  in case a tool reports the denial there instead. */
+const reasonsOf = (error) => [error?.error?.message, error?.message];
 
 /** The same error without the wrapped one, so the model reads `message`. A
  *  copy with the host's prototype, so it still counts as a tool failure:
@@ -40,14 +41,14 @@ export async function registerToolHook({ ctx, stateDir }, session) {
 
     if (event.status === 'error') {
       const original = event.error;
-      const replacement = deniedMessageFor({
+      const replacement = reasonsOf(original).reduce((found, message) => found ?? deniedMessageFor({
         tool: event.tool,
-        message: reasonOf(original),
+        message,
         input: toolInput(event),
         phase: state.phase,
         sandbox: state.sandbox,
         cmd: CMD,
-      });
+      }), null);
       if (!replacement) return log(event, 'ignored');
       try {
         event.error = withMessage(original, replacement);

@@ -15,7 +15,7 @@ import path from 'node:path';
 
 import {
   CMD, SUBCOMMANDS, parseInvocation, statusText, phaseHint, armPrompt, implementPrompt,
-  approvePrompt, restoreNotice, stopNotice, notice, RESTORE_WORDING, PRUNE_WORDING, sandboxFor, deniedMessageFor,
+  approvePrompt, restoreNotice, restoreConfirm, stopNotice, notice, RESTORE_WORDING, PRUNE_WORDING, sandboxFor, deniedMessageFor,
 } from '../../opencode/lib.mjs';
 import { sessionRules, matchEffect } from '../../shared/rules.mjs';
 import {
@@ -165,6 +165,7 @@ describe('prompts name the paths and approval the user needs', () => {
   test('arm without a question asks the user, not the model', () => {
     const text = armPrompt({ state: { round: 1, sandbox: SANDBOX, cwd: LOCATION }, question: '', snapshotLine: 'x' });
     assert.match(text, /Ask your question in the chat/);
+    assert.match(text, /\/probe implement/);
     assert.doesNotMatch(text, /contract/);
   });
 
@@ -185,10 +186,21 @@ describe('prompts name the paths and approval the user needs', () => {
     assert.match(applied.description, /Restored to the start/);
   });
 
+  test('the restore footer and model note repeat the previewed flags', () => {
+    // Without them, --force restores the current round instead, and taking
+    // its undo point overwrites the one an --undo preview was about.
+    assert.match(restoreConfirm([]), /Run \/probe restore --force to apply it/);
+    assert.match(restoreConfirm(['--undo']), /Run \/probe restore --undo --force to apply it/);
+    assert.match(restoreConfirm(['--round', '1']), /Run \/probe restore --round 1 --force/);
+    assert.match(restoreConfirm(['--all']), /\/probe restore --all --force/);
+    const preview = restoreNotice({ text: 'preview', force: false, args: ['--undo'] });
+    assert.match(preview.text, /\/probe restore --undo --force/);
+  });
+
   test('restore and prune footers speak to the user', () => {
-    assert.match(RESTORE_WORDING.confirm, /Run \/probe restore --force/);
+    assert.equal(RESTORE_WORDING.confirm, undefined);
     assert.match(PRUNE_WORDING.confirm, /Run \/probe rounds prune --force/);
-    assert.doesNotMatch(RESTORE_WORDING.confirm + PRUNE_WORDING.confirm, /Show this preview/);
+    assert.doesNotMatch(restoreConfirm([]) + PRUNE_WORDING.confirm, /Show this preview/);
   });
 
   test('restore wording names this host, not the Claude control script', () => {

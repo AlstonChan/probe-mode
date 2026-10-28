@@ -7,7 +7,7 @@ import { implementRefusal } from '../shared/contract.mjs';
 import { exportRound } from '../shared/export.mjs';
 import {
   CMD, parseInvocation, statusText, implementPrompt, approvePrompt, notice,
-  restoreNotice, stopNotice, RESTORE_WORDING, PRUNE_WORDING,
+  restoreNotice, restoreConfirm, stopNotice, RESTORE_WORDING, PRUNE_WORDING,
 } from './lib.mjs';
 import { plansFileFor } from './lifecycle.mjs';
 import { trace } from '../shared/trace.mjs';
@@ -25,12 +25,14 @@ export async function registerCommands(env, session, lifecycle) {
     // `say` starts a model turn; `note` only shows a notice (see lib.mjs notice).
     const say = (text) =>
       ctx.session.prompt({ sessionID, text, delivery, ...(prompt?.files ? { files: prompt.files } : {}) });
-    const show = (n) => ctx.session.synthetic({ sessionID, ...n, resume: false });
+    const show = (n) => ctx.session.synthetic({ sessionID, ...n, delivery, resume: false });
     const note = (body, extra) => show(notice(sub, body, extra));
 
     if (sub === 'start') {
       const text = await lifecycle.arm(sessionID, question);
-      return question ? say(text) : note(text);
+      // Attachments are for the model, so they still get a turn. A bare
+      // `/probe` is labeled as typed, not as its `start` alias.
+      return question || prompt?.files?.length ? say(text) : show(notice('', text));
     }
 
     if (sub === 'export') {
@@ -41,10 +43,10 @@ export async function registerCommands(env, session, lifecycle) {
 
     if (sub === 'rounds') {
       if (!state) return note('Probe mode is not active for this session.');
-      const text = args[0] === 'prune'
-        ? pruneRounds({ cwd: locationDir, sessionId: owner, stateDir, state, force: args.includes('--force'), wording: PRUNE_WORDING })
-        : listRounds({ cwd: locationDir, sessionId: owner, state });
-      return note(text, 'Never add --force yourself; only the user does.');
+      if (args[0] !== 'prune') return note(listRounds({ cwd: locationDir, sessionId: owner, state }));
+      const force = args.includes('--force');
+      const text = pruneRounds({ cwd: locationDir, sessionId: owner, stateDir, state, force, wording: PRUNE_WORDING });
+      return note(text, force ? undefined : 'Never add --force yourself; only the user does.');
     }
 
     if (sub === 'diff') {
@@ -93,9 +95,9 @@ export async function registerCommands(env, session, lifecycle) {
         state,
         argv: args,
         force,
-        wording: RESTORE_WORDING,
+        wording: { ...RESTORE_WORDING, confirm: restoreConfirm(args) },
       });
-      return show(restoreNotice({ text: result.text, force }));
+      return show(restoreNotice({ text: result.text, force, args }));
     }
 
     if (sub === 'stop') {

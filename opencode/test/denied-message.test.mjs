@@ -38,6 +38,23 @@ test('a denied edit is replaced by the probe reason, with no wrapped error left'
   assert.match(event.error.message, /README\.md/);
 }));
 
+test('a denied shell command gets the shell reason', () => withArmed(async (h) => {
+  const event = {
+    sessionID: 's1', tool: 'shell', status: 'error', input: { command: 'git commit -m x' },
+    error: new ToolError({ message: 'Unable to run command', error: new PermissionRejected('Permission denied: shell') }),
+  };
+  await h.afterTool(event);
+  assert.match(event.error.message, /git commit -m x/);
+  assert.equal(event.error.error, undefined);
+}));
+
+test('a denial in the outer message still counts when the wrapped error is about something else', () => withArmed(async (h) => {
+  const event = failedEdit(new Error('socket hang up'));
+  event.error.message = 'Permission denied: edit';
+  await h.afterTool(event);
+  assert.match(event.error.message, /Blocked by probe mode/);
+}));
+
 test('an edit that failed for another reason is left alone', () => withArmed(async (h) => {
   const inner = new Error('ENOENT: no such file');
   const event = failedEdit(inner);
