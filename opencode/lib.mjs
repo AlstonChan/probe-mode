@@ -62,8 +62,18 @@ export function statusText(state, { sessionId, refExists }) {
   return lines.join('\n');
 }
 
-/** Every command runs by submitting a prompt — OpenCode commands print nothing
- *  on their own — so these build what the user actually sees. */
+/** OpenCode commands print nothing on their own, so a subcommand either
+ *  prompts the model (when the model has to act: arm with a question,
+ *  implement, approve) or posts a notice. These build both. */
+
+/** Output a subcommand reports without starting a model turn. OpenCode shows
+ *  `description` to the user as a Notice; `text` reaches the model with its
+ *  next request, so it still knows what happened. `note` is model-only
+ *  guidance, never shown. */
+export function notice(sub, body, note) {
+  const head = `[${CMD}${sub ? ` ${sub}` : ''}]`;
+  return { description: body, text: [`${head} ${body}`, note].filter(Boolean).join('\n\n') };
+}
 
 export function armPrompt({ state, question, snapshotLine }) {
   const head = state.round > 1
@@ -75,8 +85,9 @@ export function armPrompt({ state, question, snapshotLine }) {
     `Project: ${state.cwd}`,
     `Snapshot: ${snapshotLine}`,
     '',
-    question ? `Investigate: ${question}` : "Probe mode is armed. Confirm what you want investigated.",
-    'Follow the probe contract injected with this turn; report findings and stop.',
+    ...(question
+      ? [`Investigate: ${question}`, 'Follow the probe contract injected with this turn; report findings and stop.']
+      : ['Ask your question in the chat; writes stay blocked until you approve a plan.']),
   ].join('\n');
 }
 
@@ -99,41 +110,32 @@ export function approvePrompt() {
   ].join('\n');
 }
 
-export function relayPrompt({ title, body, instruction }) {
-  return [title, instruction, '', body].filter(Boolean).join('\n');
-}
-
-export function stopPrompt() {
-  return [
-    'Probe mode OFF. Snapshots are kept; `/probe restore` still works this session.',
+export function stopNotice() {
+  return notice(
+    'stop',
+    `Probe mode OFF. Snapshots are kept; \`${CMD} restore\` still works this session.`,
     'Return to your normal behavior.',
-  ].join('\n');
+  );
 }
 
-/** Claude's preview footer names probe-ctl; ours names the slash command. */
+/** Claude's preview footer names probe-ctl and speaks to the model; ours names
+ *  the slash command and speaks to the user, who reads it as a notice. */
 export const RESTORE_WORDING = {
   undoSaved: `Undo point saved — reverse this with: ${CMD} restore --undo --force`,
   reversible: `\`${CMD} restore --undo\` puts it back.`,
-  confirm: `Show this preview to the user, then run ${CMD} restore --force only after they confirm.`,
+  confirm: `Nothing has changed yet. Run ${CMD} restore --force to apply it (--round N or --all targets another round).`,
 };
 
 export const PRUNE_WORDING = {
-  confirm: `Show this preview to the user. Only they run ${CMD} rounds prune --force.`,
+  confirm: `Nothing has been deleted yet. Run ${CMD} rounds prune --force to apply it.`,
 };
 
-export function restoreRelay({ text, force }) {
-  if (force) {
-    return relayPrompt({
-      title: 'Restore applied:',
-      instruction: 'Report what changed (HEAD, rolled-back commits) briefly, then stop.',
-      body: text,
-    });
-  }
-  return relayPrompt({
-    title: 'RESTORE PREVIEW — show this to the user verbatim:',
-    instruction: `Nothing has been changed. Tell them to run \`${CMD} restore --force\` to apply it (or \`${CMD} restore --round N\` / \`--all\` to target another round) — do NOT apply it yourself.`,
-    body: text,
-  });
+/** `restore` output. The preview's model note keeps the model from applying
+ *  it: only the user runs `--force`. */
+export function restoreNotice({ text, force }) {
+  return force
+    ? notice('restore', text, 'The project was rolled back; re-read files before relying on what you saw earlier.')
+    : notice('restore', text, `Nothing has been changed. Only the user runs \`${CMD} restore --force\`; do NOT apply it yourself.`);
 }
 
 /** Sandbox the arm step creates: outside the workspace, so its rules grant the

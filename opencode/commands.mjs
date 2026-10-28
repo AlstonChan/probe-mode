@@ -6,12 +6,13 @@ import { checkReport, loadPolicy } from '../shared/shell.mjs';
 import { implementRefusal } from '../shared/contract.mjs';
 import { exportRound } from '../shared/export.mjs';
 import {
-  CMD, parseInvocation, statusText, implementPrompt, approvePrompt,
-  restoreRelay, stopPrompt, RESTORE_WORDING, PRUNE_WORDING,
+  CMD, parseInvocation, statusText, implementPrompt, approvePrompt, notice,
+  restoreNotice, stopNotice, RESTORE_WORDING, PRUNE_WORDING,
 } from './lib.mjs';
 import { plansFileFor } from './lifecycle.mjs';
 import { trace } from '../shared/trace.mjs';
 
+/** @param {import('./index.mjs').PluginEnv} env */
 export async function registerCommands(env, session, lifecycle) {
   const { ctx, stateDir, locationDir, rootsFor } = env;
 
@@ -21,31 +22,34 @@ export async function registerCommands(env, session, lifecycle) {
     const armed = await session.armedFor(sessionID);
     const owner = armed?.owner ?? sessionID;
     const state = armed?.state ?? null;
+    // `say` starts a model turn; `note` only shows a notice (see lib.mjs notice).
     const say = (text) =>
       ctx.session.prompt({ sessionID, text, delivery, ...(prompt?.files ? { files: prompt.files } : {}) });
+    const show = (n) => ctx.session.synthetic({ sessionID, ...n, resume: false });
+    const note = (body, extra) => show(notice(sub, body, extra));
 
     if (sub === 'start') {
-      return say(await lifecycle.arm(sessionID, question));
+      const text = await lifecycle.arm(sessionID, question);
+      return question ? say(text) : note(text);
     }
 
     if (sub === 'export') {
-      if (!state) return say('Probe mode is not active for this session; nothing to export.');
+      if (!state) return note('Probe mode is not active for this session; nothing to export.');
       const file = exportRound({ cwd: locationDir, sessionId: owner, stateDir, state, outDir: path.join(stateDir, 'exports') }); // never swept: no sandbox/ inside
-      return say(`Report this to the user as-is: Exported to ${file}`);
+      return note(`Exported to ${file}`);
     }
 
     if (sub === 'rounds') {
-      if (!state) return say('Probe mode is not active for this session.');
+      if (!state) return note('Probe mode is not active for this session.');
       const text = args[0] === 'prune'
         ? pruneRounds({ cwd: locationDir, sessionId: owner, stateDir, state, force: args.includes('--force'), wording: PRUNE_WORDING })
         : listRounds({ cwd: locationDir, sessionId: owner, state });
-      return say(`Report this to the user as-is (never add --force yourself):\n\n${text}`);
+      return note(text, 'Never add --force yourself; only the user does.');
     }
 
     if (sub === 'diff') {
-      if (!state) return say('Probe mode is not active for this session; no snapshot to compare against.');
-      const text = diffSince({ cwd: locationDir, sessionId: owner, state, argv: args });
-      return say(`Report this to the user as-is:${String.fromCharCode(10).repeat(2)}${text}`);
+      if (!state) return note('Probe mode is not active for this session; no snapshot to compare against.');
+      return note(diffSince({ cwd: locationDir, sessionId: owner, state, argv: args }));
     }
 
     if (sub === 'check') {
@@ -55,22 +59,19 @@ export async function registerCommands(env, session, lifecycle) {
         phase: state ? state.phase : 'probe',
         policy: loadPolicy({ userFile: env.userPolicy, projectDir: locationDir }),
       });
-      const note = state ? '' : 'Probe mode is not active, so nothing is blocked. As if it were:\n';
-      return say(`Report this to the user as-is:\n\n${note}${text}`);
+      const unarmed = state ? '' : 'Probe mode is not active, so nothing is blocked. As if it were:\n';
+      return note(`${unarmed}${text}`);
     }
 
     if (sub === 'status') {
       const status = statusText(state, { sessionId: owner, refExists: (ref) => refExists(locationDir, ref) });
-      const text = state ? `${status}\n${denialSummary(stateDir, owner)}` : status;
-      return say(
-        `Report this probe status to the user as-is (no extra commentary):\n\n${text}`,
-      );
+      return note(state ? `${status}\n${denialSummary(stateDir, owner)}` : status);
     }
 
     if (sub === 'implement') {
-      if (!state) return say('Probe mode is not active.');
+      if (!state) return note('Probe mode is not active.');
       const refusal = implementRefusal(state.phase, CMD);
-      if (refusal) return say(`Report this to the user as-is, and do not start planning:\n\n${refusal}`);
+      if (refusal) return note(refusal, 'Do not start planning.');
       state.phase = 'planning';
       writeState(stateDir, owner, state);
       await session.applyRulesFor(sessionID, 'planning', state);
@@ -79,11 +80,11 @@ export async function registerCommands(env, session, lifecycle) {
 
     if (sub === 'approve') {
       const unlocked = await session.unlock(sessionID, 'command');
-      return say(unlocked ? approvePrompt() : 'Probe mode is not active; nothing to approve.');
+      return unlocked ? say(approvePrompt()) : note('Probe mode is not active; nothing to approve.');
     }
 
     if (sub === 'restore') {
-      if (!state) return say('Probe mode is not active for this session; no snapshot to restore.');
+      if (!state) return note('Probe mode is not active for this session; no snapshot to restore.');
       const force = args.includes('--force');
       const result = restore({
         cwd: locationDir,
@@ -94,7 +95,7 @@ export async function registerCommands(env, session, lifecycle) {
         force,
         wording: RESTORE_WORDING,
       });
-      return say(restoreRelay({ text: result.text, force }));
+      return show(restoreNotice({ text: result.text, force }));
     }
 
     if (sub === 'stop') {
@@ -103,7 +104,7 @@ export async function registerCommands(env, session, lifecycle) {
         writeState(stateDir, owner, state);
         await session.applyRulesFor(sessionID, 'off', state);
       }
-      return say(stopPrompt());
+      return show(stopNotice());
     }
   };
 

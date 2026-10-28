@@ -1,7 +1,7 @@
 // OpenCode host: command parsing, status/prompt text, and the phase -> rules
 // lifecycle the plugin drives.
 //
-//   node --test test/opencode.test.mjs
+//   node --test opencode/test/opencode.test.mjs
 //
 // Everything here is pure (no plugin API, no server), so the same assertions
 // hold whichever host reads the state. The enforcement itself is covered by
@@ -15,7 +15,7 @@ import path from 'node:path';
 
 import {
   CMD, SUBCOMMANDS, parseInvocation, statusText, phaseHint, armPrompt, implementPrompt,
-  approvePrompt, restoreRelay, stopPrompt, RESTORE_WORDING, sandboxFor, deniedMessageFor,
+  approvePrompt, restoreNotice, stopNotice, notice, RESTORE_WORDING, PRUNE_WORDING, sandboxFor, deniedMessageFor,
 } from '../../opencode/lib.mjs';
 import { sessionRules, matchEffect } from '../../shared/rules.mjs';
 import {
@@ -157,17 +157,38 @@ describe('prompts name the paths and approval the user needs', () => {
   test('approve prompt says execution is free now', () => {
     assert.match(approvePrompt(), /APPROVED/);
     assert.match(approvePrompt(), /No further approval is needed/);
-    assert.match(stopPrompt(), /Snapshots are kept/);
+    assert.match(stopNotice().description, /Snapshots are kept/);
+    assert.match(stopNotice().text, /Return to your normal behavior/);
+    assert.doesNotMatch(stopNotice().description, /normal behavior/);
   });
 
-  test('restore preview asks for a second, explicit run; force does not', () => {
-    const preview = restoreRelay({ text: 'RESTORE PREVIEW — nothing has been changed yet.', force: false });
-    assert.match(preview, /RESTORE PREVIEW/);
-    assert.match(preview, /restore --force/);
-    assert.match(preview, /do NOT apply it yourself/);
-    const applied = restoreRelay({ text: 'Restored to the start of round 1.', force: true });
-    assert.doesNotMatch(applied, /do NOT apply/);
-    assert.match(applied, /Restore applied/);
+  test('arm without a question asks the user, not the model', () => {
+    const text = armPrompt({ state: { round: 1, sandbox: SANDBOX, cwd: LOCATION }, question: '', snapshotLine: 'x' });
+    assert.match(text, /Ask your question in the chat/);
+    assert.doesNotMatch(text, /contract/);
+  });
+
+  test('a notice shows the body and tells the model which command ran', () => {
+    const n = notice('status', 'Probe mode: OFF', 'model only');
+    assert.equal(n.description, 'Probe mode: OFF');
+    assert.equal(n.text, '[/probe status] Probe mode: OFF\n\nmodel only');
+    assert.equal(notice('', 'armed').text, '[/probe] armed');
+  });
+
+  test('restore preview keeps the model from applying it; force does not', () => {
+    const preview = restoreNotice({ text: 'RESTORE PREVIEW — nothing has been changed yet.', force: false });
+    assert.match(preview.description, /RESTORE PREVIEW/);
+    assert.doesNotMatch(preview.description, /do NOT apply/);
+    assert.match(preview.text, /do NOT apply it yourself/);
+    const applied = restoreNotice({ text: 'Restored to the start of round 1.', force: true });
+    assert.doesNotMatch(applied.text, /do NOT apply/);
+    assert.match(applied.description, /Restored to the start/);
+  });
+
+  test('restore and prune footers speak to the user', () => {
+    assert.match(RESTORE_WORDING.confirm, /Run \/probe restore --force/);
+    assert.match(PRUNE_WORDING.confirm, /Run \/probe rounds prune --force/);
+    assert.doesNotMatch(RESTORE_WORDING.confirm + PRUNE_WORDING.confirm, /Show this preview/);
   });
 
   test('restore wording names this host, not the Claude control script', () => {

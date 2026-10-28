@@ -204,6 +204,11 @@ have the same subcommands except the two marked.
 the sandbox if the model kept one, the changes since the round started, and the
 denials. The sandbox itself is pruned after 7 days unused; the export is not.
 
+On OpenCode, subcommands that only report something (`status`, `check`, `diff`,
+`rounds`, `export`, `restore`, `stop`, and a bare `/probe`) show their output as a
+notice in the session and do not start a model turn; the model reads it with its next
+request. Only `/probe <question>`, `implement` and `approve` hand the turn to the model.
+
 `/probe` is `disable-model-invocation: true` in Claude Code — Claude cannot arm or
 disarm it, only you can. OpenCode has no model-facing command tool, so the same holds
 there: the model cannot run `/probe …`, only you can.

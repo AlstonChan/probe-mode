@@ -23,6 +23,7 @@ before(async () => {
       update: async () => {},
       switchAgent: async () => {},
       prompt: async () => { if (failPrompt) throw new Error('boom'); },
+      synthetic: async () => { if (failPrompt) throw new Error('boom'); },
       hook: async () => {},
     },
     agent: { transform: async () => {} },

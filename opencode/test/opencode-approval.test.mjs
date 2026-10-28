@@ -1,6 +1,6 @@
 // OpenCode approval paths, driven through the real plugin with a stub ctx.
 //
-//   node --test test/opencode-approval.test.mjs
+//   node --test opencode/test/opencode-approval.test.mjs
 //
 // Only an explicit approval of a plan written after `implement` may unlock:
 // not a dialog raised during research, not a child session's stale rules, not
@@ -49,6 +49,7 @@ before(async () => {
       update: async () => {},
       switchAgent: async () => {},
       prompt: async () => {},
+      synthetic: async () => {},
       hook: async () => {},
     },
     agent: { transform: async () => {} },

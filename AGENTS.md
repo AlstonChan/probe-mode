@@ -26,7 +26,10 @@ Run only after a host (Claude Code / OpenCode) update. Turn any drift into a pro
 4. **`/probe approve` from a locked state** (phase `probe`, no plan).
    - Claude Code: no such command (OpenCode only); expect it to be unknown or refused. README is silent on exact wording, so note what you see.
    - OpenCode: README says it unlocks without writing anything; it does not say whether a locked `probe` phase (no `implement`) is refused. Record the observed result and check `/probe status`.
-5. **Subagent edit while armed is denied.** Ask the model to spawn a subagent to write a project file.
+5. **Reporting subcommands do not start a model turn** (OpenCode only). Run `/probe status`, then `/probe restore`.
+   - Each shows one notice with the full multi-line output; nothing appears as a user message and the model does not reply.
+   - Then ask the model "what phase are we in?": it should answer from the notice.
+6. **Subagent edit while armed is denied.** Ask the model to spawn a subagent to write a project file.
    - Claude Code: subagent shares the parent session_id; the guard denies its write.
    - OpenCode: child inherits the session rules and ancestry state; the write is denied.
 

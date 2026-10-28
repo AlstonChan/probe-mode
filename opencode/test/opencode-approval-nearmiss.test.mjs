@@ -46,6 +46,7 @@ before(async () => {
       update: async () => {},
       switchAgent: async () => {},
       prompt: async () => {},
+      synthetic: async () => {},
       hook: async () => {},
     },
     agent: { transform: async () => {} },
