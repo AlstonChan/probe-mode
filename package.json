@@ -1,6 +1,6 @@
 {
   "name": "probe-mode",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "Research-only mode you can loop: round after round of questioning, testing and benchmarking in a sandbox, then a plan you approve, then implementation, and back to research whenever you want. Enforced by hooks rather than by the model, and every round keeps its own git restore point.",
   "author": {
     "name": "Alston Chan",
